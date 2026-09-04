@@ -196,6 +196,8 @@
         });
 
         startBtn.addEventListener('click', () => {
+            statusText.style.color = '#ff9800';
+
             if (typeof Peer === 'undefined') {
                 statusText.innerText = 'Помилка: Бібліотека PeerJS не завантажилася!';
                 return;
@@ -206,7 +208,8 @@
             if (role === 'host') {
                 const file = videoFile.files[0];
                 if (!file) {
-                    alert('Виберіть відеофайл для головного пристрою!');
+                    statusText.style.color = '#f44336';
+                    statusText.innerText = 'Помилка: Виберіть відеофайл!';
                     return;
                 }
                 videoPlayer.src = URL.createObjectURL(file);
@@ -226,10 +229,11 @@
                         setTimeout(() => {
                             setupContainer.classList.add('hidden');
                             playerContainer.style.display = 'flex';
-                        }, 800);
+                        }, 1200);
                     });
 
                     peer.on('error', (err) => {
+                        statusText.style.color = '#f44336';
                         statusText.innerText = 'Помилка PeerJS: ' + (err.type || err);
                     });
 
@@ -239,6 +243,7 @@
                         setupHostSync();
                     });
                 } catch (e) {
+                    statusText.style.color = '#f44336';
                     statusText.innerText = 'Помилка: ' + e.message;
                 }
 
@@ -246,11 +251,13 @@
                 const code = roomCodeInput.value.trim();
                 const file = clientVideoFile.files[0];
                 if (code.length !== 5) {
-                    alert('Введіть 5-значний код кімнати!');
+                    statusText.style.color = '#f44336';
+                    statusText.innerText = 'Помилка: Введіть 5-значний код кімнати!';
                     return;
                 }
                 if (!file) {
-                    alert('Виберіть той самий відеофайл для клієнта!');
+                    statusText.style.color = '#f44336';
+                    statusText.innerText = 'Помилка: Виберіть відеофайл для клієнта!';
                     return;
                 }
                 videoPlayer.src = URL.createObjectURL(file);
@@ -273,18 +280,21 @@
                                 setupContainer.classList.add('hidden');
                                 playerContainer.style.display = 'flex';
                                 setupClientSync();
-                            }, 800);
+                            }, 1200);
                         });
 
                         conn.on('error', (err) => {
+                            statusText.style.color = '#f44336';
                             statusText.innerText = 'Помилка з’єднання: ' + err;
                         });
                     });
 
                     peer.on('error', (err) => {
+                        statusText.style.color = '#f44336';
                         statusText.innerText = 'Помилка PeerJS: ' + (err.type || err);
                     });
                 } catch (e) {
+                    statusText.style.color = '#f44336';
                     statusText.innerText = 'Помилка: ' + e.message;
                 }
             }
