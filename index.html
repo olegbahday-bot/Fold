@@ -471,7 +471,7 @@ function setupConnection() {
                             time: videoPlayer.currentTime
                         }));
                     }
-                }, 1000);
+                }, 2000);
             }
         }, 300);
     });
@@ -485,24 +485,35 @@ function setupConnection() {
                 updateVideoStyle();
                 sendScreenInfo();
             } else if (msg.type === 'play') {
+                videoPlayer.playbackRate = 1.0;
                 videoPlayer.play().catch(e => {});
                 playPauseBtn.textContent = '❚❚ Пауза';
             } else if (msg.type === 'pause') {
+                videoPlayer.playbackRate = 1.0;
                 videoPlayer.pause();
                 playPauseBtn.textContent = '▶ Грати';
             } else if (msg.type === 'restart') {
+                videoPlayer.playbackRate = 1.0;
                 videoPlayer.currentTime = 0;
                 videoPlayer.play().catch(e => {});
                 playPauseBtn.textContent = '❚❚ Пауза';
             } else if (msg.type === 'seek') {
+                videoPlayer.playbackRate = 1.0;
                 videoPlayer.currentTime = msg.time;
                 videoSeek.value = msg.time;
                 currentTimeText.textContent = formatTime(msg.time);
             } else if (msg.type === 'sync_time' && !isHost && !isSeeking) {
                 if (!videoPlayer.paused) {
-                    const diff = Math.abs(videoPlayer.currentTime - msg.time);
-                    if (diff > 0.3) {
+                    const diff = videoPlayer.currentTime - msg.time;
+                    if (Math.abs(diff) > 1.0) {
                         videoPlayer.currentTime = msg.time;
+                        videoPlayer.playbackRate = 1.0;
+                    } else if (diff > 0.1) {
+                        videoPlayer.playbackRate = 0.93; // повільніше, якщо випереджає
+                    } else if (diff < -0.1) {
+                        videoPlayer.playbackRate = 1.07; // швидше, якщо відстає
+                    } else {
+                        videoPlayer.playbackRate = 1.0;
                     }
                 }
             }
@@ -546,6 +557,7 @@ videoSeek.addEventListener('change', () => {
     isSeeking = false;
     const newTime = parseFloat(videoSeek.value);
     videoPlayer.currentTime = newTime;
+    videoPlayer.playbackRate = 1.0;
     if (conn && conn.open) {
         conn.send(JSON.stringify({ type: 'seek', time: newTime }));
     }
@@ -589,10 +601,12 @@ if (window.visualViewport) {
 
 playPauseBtn.addEventListener('click', () => {
     if (videoPlayer.paused) {
+        videoPlayer.playbackRate = 1.0;
         videoPlayer.play().catch(e => {});
         playPauseBtn.textContent = '❚❚ Пауза';
         if (conn) conn.send(JSON.stringify({ type: 'play' }));
     } else {
+        videoPlayer.playbackRate = 1.0;
         videoPlayer.pause();
         playPauseBtn.textContent = '▶ Грати';
         if (conn) conn.send(JSON.stringify({ type: 'pause' }));
@@ -600,6 +614,7 @@ playPauseBtn.addEventListener('click', () => {
 });
 
 restartBtn.addEventListener('click', () => {
+    videoPlayer.playbackRate = 1.0;
     videoPlayer.currentTime = 0;
     videoPlayer.play().catch(e => {});
     playPauseBtn.textContent = '❚❚ Пауза';
