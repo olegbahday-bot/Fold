@@ -204,7 +204,6 @@ input[type="range"].video-seek {
 <!-- Екран відеоплеєра -->
 <div id="playerScreen">
     <video id="videoPlayer" class="vid-el" playsinline></video>
-    <!-- Прихований інпут для вибору нового відео прямо з плеєра -->
     <input type="file" id="newVideoInput" accept="video/*" style="display: none;">
 
     <div class="controls" id="playerControls">
@@ -449,7 +448,7 @@ function sendScreenInfo() {
 }
 
 function setupConnection() {
-    conn.on('open', () => {
+    const initConnection = () => {
         connectionStatus.textContent = 'Статус: Успішно підключено!';
         sendScreenInfo();
 
@@ -471,10 +470,17 @@ function setupConnection() {
                             time: videoPlayer.currentTime
                         }));
                     }
-                }, 2000);
+                }, 1000); // Зменшено до 1 секунди для кращої чутливості
             }
         }, 300);
-    });
+    };
+
+    // Надійна перевірка стану відкриття з'єднання (вирішує проблему пропущеної події open на хості)
+    if (conn.open) {
+        initConnection();
+    } else {
+        conn.on('open', initConnection);
+    }
 
     conn.on('data', (data) => {
         try {
@@ -509,9 +515,9 @@ function setupConnection() {
                         videoPlayer.currentTime = msg.time;
                         videoPlayer.playbackRate = 1.0;
                     } else if (diff > 0.1) {
-                        videoPlayer.playbackRate = 0.93; // повільніше, якщо випереджає
+                        videoPlayer.playbackRate = 0.93;
                     } else if (diff < -0.1) {
-                        videoPlayer.playbackRate = 1.07; // швидше, якщо відстає
+                        videoPlayer.playbackRate = 1.07;
                     } else {
                         videoPlayer.playbackRate = 1.0;
                     }
@@ -604,12 +610,12 @@ playPauseBtn.addEventListener('click', () => {
         videoPlayer.playbackRate = 1.0;
         videoPlayer.play().catch(e => {});
         playPauseBtn.textContent = '❚❚ Пауза';
-        if (conn) conn.send(JSON.stringify({ type: 'play' }));
+        if (conn && conn.open) conn.send(JSON.stringify({ type: 'play' }));
     } else {
         videoPlayer.playbackRate = 1.0;
         videoPlayer.pause();
         playPauseBtn.textContent = '▶ Грати';
-        if (conn) conn.send(JSON.stringify({ type: 'pause' }));
+        if (conn && conn.open) conn.send(JSON.stringify({ type: 'pause' }));
     }
 });
 
@@ -618,7 +624,7 @@ restartBtn.addEventListener('click', () => {
     videoPlayer.currentTime = 0;
     videoPlayer.play().catch(e => {});
     playPauseBtn.textContent = '❚❚ Пауза';
-    if (conn) conn.send(JSON.stringify({ type: 'restart' }));
+    if (conn && conn.open) conn.send(JSON.stringify({ type: 'restart' }));
 });
 
 fullscreenBtn.addEventListener('click', () => {
