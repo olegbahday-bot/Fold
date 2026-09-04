@@ -1,416 +1,683 @@
 <!DOCTYPE html>
 <html lang="uk">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ScreenParty Sync</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #121212;
-            color: #e0e0e0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            overflow: hidden;
-        }
-        .container {
-            width: 90%;
-            max-width: 400px;
-            background: #1e1e1e;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            box-sizing: border-box;
-        }
-        h1 {
-            color: #4CAF50;
-            text-align: center;
-            font-size: 24px;
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            margin-top: 15px;
-            margin-bottom: 5px;
-            font-size: 14px;
-            color: #b0b0b0;
-        }
-        select, input, button {
-            width: 100%;
-            padding: 12px;
-            background: #2d2d2d;
-            border: 1px solid #444;
-            color: #fff;
-            border-radius: 8px;
-            font-size: 16px;
-            box-sizing: border-box;
-        }
-        input[type="text"] {
-            letter-spacing: 4px;
-            text-align: center;
-            font-weight: bold;
-            font-size: 18px;
-        }
-        button {
-            background: #4CAF50;
-            border: none;
-            font-weight: bold;
-            cursor: pointer;
-            margin-top: 20px;
-            transition: background 0.2s;
-        }
-        button:hover {
-            background: #45a049;
-        }
-        .hidden {
-            display: none !important;
-        }
-        #playerContainer {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: #000;
-            display: none;
-            overflow: hidden;
-            z-index: 9999;
-        }
-        video {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            transform-origin: center center;
-            transition: transform 0.1s ease-out;
-        }
-        .controls-overlay {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.75);
-            padding: 10px 15px;
-            border-radius: 12px;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            z-index: 10000;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(5px);
-        }
-        .control-row {
-            display: flex;
-            justify-content: center;
-            gap: 8px;
-        }
-        .ctrl-btn {
-            background: #333;
-            color: white;
-            border: 1px solid #555;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 16px;
-            cursor: pointer;
-            width: auto;
-            margin: 0;
-        }
-        .ctrl-btn:active {
-            background: #4CAF50;
-        }
-        .fs-btn {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            padding: 10px 16px;
-            border-radius: 8px;
-            cursor: pointer;
-            z-index: 10000;
-            font-size: 14px;
-            width: auto;
-            margin: 0;
-        }
-        .status {
-            margin-top: 15px;
-            text-align: center;
-            font-size: 15px;
-            color: #ff9800;
-            word-break: break-all;
-            font-weight: bold;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ScreenParty Sync</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+<style>
+body {
+    margin: 0;
+    background: #121212;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 10px;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+.card {
+    background: #1e1e1e;
+    padding: 20px;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    text-align: center;
+    z-index: 10;
+}
+h2 { margin-top: 0; font-size: 20px; color: #4CAF50; }
+label { display: block; margin-top: 10px; font-size: 13px; color: #bbb; text-align: left; }
+select, input, button {
+    width: 100%;
+    padding: 10px;
+    margin-top: 5px;
+    background: #2a2a2a;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 8px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+input[type="text"] {
+    letter-spacing: 4px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 16px;
+}
+button {
+    background: #4CAF50;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: background 0.2s;
+}
+button:hover { background: #45a049; }
+.hidden { display: none !important; }
+
+.code-display {
+    background: #fff;
+    color: #000;
+    font-size: 28px;
+    font-weight: bold;
+    letter-spacing: 6px;
+    padding: 10px;
+    border-radius: 8px;
+    margin-top: 8px;
+    display: inline-block;
+}
+
+#playerScreen {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    background: #000;
+    overflow: hidden;
+    display: none;
+    z-index: 100;
+}
+video.vid-el {
+    position: absolute;
+    top: 0;
+    left: 0;
+    object-fit: fill;
+}
+
+.controls {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.94);
+    padding: 8px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 200;
+    width: 96%;
+    max-width: 360px;
+    max-height: 75vh;
+    overflow-y: auto;
+    box-sizing: border-box;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+}
+.controls-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+}
+.controls button {
+    margin: 0;
+    padding: 8px 2px;
+    border-radius: 6px;
+    font-size: 11px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+    width: 100%;
+}
+.controls button:hover { background: #45a049; }
+.btn-full { grid-column: span 3; }
+.reset-btn { background-color: #444; }
+.action-btn { background-color: #2196F3; }
+.scale-btn { background-color: #E91E63; }
+.fullscreen-btn { background-color: #FF9800; }
+.save-btn { background-color: #FF5722; }
+.file-btn { background-color: #607D8B; }
+
+.timeline-container {
+    width: 100%;
+    margin-bottom: 4px;
+    box-sizing: border-box;
+}
+.time-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #bbb;
+    margin-bottom: 2px;
+    font-weight: bold;
+}
+input[type="range"].video-seek {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    accent-color: #4CAF50;
+    cursor: pointer;
+    background: transparent;
+}
+
+.status {
+    font-size: 12px;
+    margin-top: 10px;
+    color: #ffb74d;
+}
+</style>
 </head>
 <body>
 
-    <div class="container" id="setupContainer">
-        <h1>ScreenParty Sync</h1>
-        
-        <label for="roleSelect">Роль пристрою:</label>
-        <select id="roleSelect">
-            <option value="host">Головний (Host - S25+)</option>
-            <option value="client">Другий (Client - S10)</option>
-        </select>
+<div class="card" id="setupCard">
+    <h2>ScreenParty Sync</h2>
 
-        <div id="hostSection">
-            <label for="videoFile">Виберіть відеофайл:</label>
-            <input type="file" id="videoFile" accept="video/*">
-        </div>
+    <label>Роль пристрою:</label>
+    <select id="roleSelect">
+        <option value="host">Головний (Host)</option>
+        <option value="client">Другий (Client)</option>
+    </select>
 
-        <div id="clientSection" class="hidden">
-            <label for="roomCodeInput">Код кімнати:</label>
-            <input type="text" id="roomCodeInput" placeholder="Введіть код" maxlength="5">
-            
-            <label for="clientVideoFile">Виберіть той самий відеофайл:</label>
-            <input type="file" id="clientVideoFile" accept="video/*">
-        </div>
+    <label>Позиція екрана (де стоїть цей телефон):</label>
+    <select id="positionSelect">
+        <option value="left">Ліва частина</option>
+        <option value="right">Права частина</option>
+    </select>
 
-        <button id="startBtn">Створити кімнату</button>
-        <div id="statusText" class="status"></div>
-    </div>
+    <label>Виберіть відеофайл:</label>
+    <input type="file" id="videoInput" accept="video/*">
 
-    <div id="playerContainer">
-        <button class="fs-btn" id="fsBtn">⛶ На весь екран</button>
-        
-        <video id="videoPlayer" playsinline controls></video>
-
-        <div class="controls-overlay" id="controlsOverlay">
-            <div class="control-row">
-                <button class="ctrl-btn" id="upBtn">⬆️</button>
-            </div>
-            <div class="control-row">
-                <button class="ctrl-btn" id="leftBtn">⬅️</button>
-                <button class="ctrl-btn" id="zoomOutBtn">➖</button>
-                <button class="ctrl-btn" id="zoomInBtn">➕</button>
-                <button class="ctrl-btn" id="rightBtn">➡️</button>
-            </div>
-            <div class="control-row">
-                <button class="ctrl-btn" id="downBtn">⬇️</button>
-            </div>
+    <div id="hostSection">
+        <button id="startHostBtn">Створити кімнату та запустити</button>
+        <div id="codeContainer" class="hidden">
+            <div style="font-size: 12px; color: #aaa; margin-top: 6px;">Ваш 5-значний код:</div>
+            <div id="hostCodeDisplay" class="code-display">-----</div>
         </div>
     </div>
 
-    <script>
-        let peer = null;
-        let conn = null;
-        const roleSelect = document.getElementById('roleSelect');
-        const hostSection = document.getElementById('hostSection');
-        const clientSection = document.getElementById('clientSection');
-        const videoFile = document.getElementById('videoFile');
-        const clientVideoFile = document.getElementById('clientVideoFile');
-        const roomCodeInput = document.getElementById('roomCodeInput');
-        const startBtn = document.getElementById('startBtn');
-        const setupContainer = document.getElementById('setupContainer');
-        const playerContainer = document.getElementById('playerContainer');
-        const videoPlayer = document.getElementById('videoPlayer');
-        const fsBtn = document.getElementById('fsBtn');
-        const statusText = document.getElementById('statusText');
+    <div id="clientSection" class="hidden">
+        <label for="clientCodeInput">Введіть 5-значний код з головного телефону:</label>
+        <input type="text" id="clientCodeInput" maxlength="5" placeholder="12345">
+        <button id="connectClientBtn">Підключитися та запустити</button>
+    </div>
 
-        // Трансформації для керування положенням та масштабом
-        let scale = 2.0;
-        let translateX = 0;
-        let translateY = 0;
+    <div class="status" id="connectionStatus">Статус: Очікування налаштування</div>
+</div>
 
-        function updateTransform() {
-            videoPlayer.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
-        }
+<div id="playerScreen">
+    <video id="videoPlayer" class="vid-el" playsinline></video>
+    <input type="file" id="newVideoInput" accept="video/*" style="display: none;">
 
-        roleSelect.addEventListener('change', () => {
-            if (roleSelect.value === 'host') {
-                hostSection.classList.remove('hidden');
-                clientSection.classList.add('hidden');
-                startBtn.innerText = 'Створити кімнату';
-            } else {
-                hostSection.classList.add('hidden');
-                clientSection.classList.remove('hidden');
-                startBtn.innerText = 'Підключитися до кімнати';
-            }
+    <div class="controls" id="playerControls">
+        <div style="font-size: 10px; text-align: center; color: #ddd; font-weight: bold; margin-bottom: 2px;">Керування та калібрування</div>
+
+        <div class="timeline-container">
+            <div class="time-labels">
+                <span id="currentTimeText">0:00</span>
+                <span id="durationText">0:00</span>
+            </div>
+            <input type="range" id="videoSeek" class="video-seek" value="0" min="0" max="100" step="0.1">
+        </div>
+
+        <div class="controls-grid">
+            <button id="playPauseBtn" class="action-btn">▶ Грати</button>
+            <button id="restartBtn" class="action-btn">↺ З початку</button>
+            <button id="fullscreenBtn" class="fullscreen-btn">⛶ Екран</button>
+
+            <button id="changeVideoBtn" class="file-btn btn-full">📁 Вибрати інше відео</button>
+            <button id="playerSaveBtn" class="save-btn btn-full">💾 Зберегти калібрування</button>
+
+            <button id="scalePlusBtn" class="scale-btn">🔍 Збільшити (+)</button>
+            <button id="resetShiftBtn" class="reset-btn">Скидання</button>
+            <button id="scaleMinusBtn" class="scale-btn">🔍 Зменшити (-)</button>
+
+            <button id="shiftLeftBtn">◄ Ліворуч</button>
+            <button id="shiftUpBtn">▲ Вгору</button>
+            <button id="shiftRightBtn">Праворуч ►</button>
+
+            <button class="reset-btn" style="visibility: hidden;"></button>
+            <button id="shiftDownBtn">▼ Вниз</button>
+            <button class="reset-btn" style="visibility: hidden;"></button>
+        </div>
+    </div>
+</div>
+
+<script>
+const setupCard = document.getElementById('setupCard');
+const playerScreen = document.getElementById('playerScreen');
+const videoPlayer = document.getElementById('videoPlayer');
+const playerControls = document.getElementById('playerControls');
+const newVideoInput = document.getElementById('newVideoInput');
+
+const roleSelect = document.getElementById('roleSelect');
+const positionSelect = document.getElementById('positionSelect');
+const videoInput = document.getElementById('videoInput');
+const hostSection = document.getElementById('hostSection');
+const clientSection = document.getElementById('clientSection');
+const connectionStatus = document.getElementById('connectionStatus');
+
+const startHostBtn = document.getElementById('startHostBtn');
+const codeContainer = document.getElementById('codeContainer');
+const hostCodeDisplay = document.getElementById('hostCodeDisplay');
+const clientCodeInput = document.getElementById('clientCodeInput');
+const connectClientBtn = document.getElementById('connectClientBtn');
+
+const playPauseBtn = document.getElementById('playPauseBtn');
+const restartBtn = document.getElementById('restartBtn');
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+const videoSeek = document.getElementById('videoSeek');
+const currentTimeText = document.getElementById('currentTimeText');
+const durationText = document.getElementById('durationText');
+
+let peer = null;
+let conn = null;
+let isHost = false;
+let localVideoBlobUrl = null;
+
+let videoOffsetX = 0;
+let videoOffsetY = 0;
+let videoScaleMultiplier = 1.0;
+let syncInterval = null;
+
+let partnerWidth = 0;
+let partnerHeight = 0;
+let isSeeking = false;
+
+function formatTime(seconds) {
+    if (isNaN(seconds)) return "0:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+}
+
+function loadSavedSettings() {
+    const savedScale = localStorage.getItem('sp_scale');
+    const savedX = localStorage.getItem('sp_offsetX');
+    const savedY = localStorage.getItem('sp_offsetY');
+    const savedPos = localStorage.getItem('sp_position');
+
+    if (savedScale !== null) videoScaleMultiplier = parseFloat(savedScale);
+    if (savedX !== null) videoOffsetX = parseFloat(savedX);
+    if (savedY !== null) videoOffsetY = parseFloat(savedY);
+    if (savedPos === 'left' || savedPos === 'right') {
+        positionSelect.value = savedPos;
+    }
+}
+
+function saveSettings() {
+    localStorage.setItem('sp_scale', videoScaleMultiplier);
+    localStorage.setItem('sp_offsetX', videoOffsetX);
+    localStorage.setItem('sp_offsetY', videoOffsetY);
+    localStorage.setItem('sp_position', positionSelect.value);
+
+    const saveBtn = document.getElementById('playerSaveBtn');
+    if (saveBtn) {
+        const originalText = saveBtn.textContent;
+        saveBtn.textContent = '✔ Збережено!';
+        saveBtn.style.backgroundColor = '#4CAF50';
+        setTimeout(() => {
+            saveBtn.textContent = originalText;
+            saveBtn.style.backgroundColor = '#FF5722';
+        }, 1200);
+    }
+}
+
+loadSavedSettings();
+
+function requestFullscreenNow() {
+    const elem = document.documentElement;
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        if (elem.requestFullscreen) elem.requestFullscreen().catch(e => {});
+        else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+    }
+}
+
+roleSelect.addEventListener('change', () => {
+    if (roleSelect.value === 'host') {
+        hostSection.classList.remove('hidden');
+        clientSection.classList.add('hidden');
+    } else {
+        hostSection.classList.add('hidden');
+        clientSection.classList.remove('hidden');
+    }
+});
+
+videoInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        localVideoBlobUrl = URL.createObjectURL(file);
+        videoPlayer.src = localVideoBlobUrl;
+        connectionStatus.textContent = 'Статус: Відео завантажено, можна запускати';
+    }
+});
+
+document.getElementById('changeVideoBtn').addEventListener('click', () => {
+    newVideoInput.click();
+});
+
+newVideoInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        localVideoBlobUrl = URL.createObjectURL(file);
+        videoPlayer.src = localVideoBlobUrl;
+        videoPlayer.load();
+        updateVideoStyle();
+        videoPlayer.currentTime = 0;
+        videoPlayer.pause();
+        playPauseBtn.textContent = '▶ Грати';
+    }
+});
+
+function generateRandomCode() {
+    return Math.floor(10000 + Math.random() * 90000).toString();
+}
+
+startHostBtn.addEventListener('click', () => {
+    if (!localVideoBlobUrl) {
+        alert('Будь ласка, виберіть відеофайл спочатку!');
+        connectionStatus.textContent = 'Статус: Помилка — не вибрано відео';
+        return;
+    }
+    requestFullscreenNow();
+    isHost = true;
+    startHostPeer();
+});
+
+function startHostPeer() {
+    const code = generateRandomCode();
+    connectionStatus.textContent = 'Статус: Створення кімнати...';
+
+    try {
+        peer = new Peer('sp-' + code, { host: '0.peerjs.com', port: 443, secure: true });
+
+        peer.on('open', () => {
+            hostCodeDisplay.textContent = code;
+            codeContainer.classList.remove('hidden');
+            connectionStatus.textContent = 'Статус: Очікування другого телефону...';
         });
 
-        function generateRoomCode() {
-            return Math.floor(10000 + Math.random() * 90000).toString();
-        }
-
-        // Керування панеллю зсуву та зуму
-        document.getElementById('leftBtn').addEventListener('click', () => { translateX += 30; updateTransform(); });
-        document.getElementById('rightBtn').addEventListener('click', () => { translateX -= 30; updateTransform(); });
-        document.getElementById('upBtn').addEventListener('click', () => { translateY += 30; updateTransform(); });
-        document.getElementById('downBtn').addEventListener('click', () => { translateY -= 30; updateTransform(); });
-        document.getElementById('zoomInBtn').addEventListener('click', () => { scale += 0.2; updateTransform(); });
-        document.getElementById('zoomOutBtn').addEventListener('click', () => { scale = Math.max(1, scale - 0.2); updateTransform(); });
-
-        fsBtn.addEventListener('click', () => {
-            const elem = playerContainer;
-            const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
-
-            if (!isFullscreen) {
-                if (elem.requestFullscreen) {
-                    elem.requestFullscreen().catch(err => console.log(err));
-                } else if (elem.webkitRequestFullscreen) {
-                    elem.webkitRequestFullscreen();
-                }
-            } else {
-                if (document.exitFullscreen) {
-                    document.exitFullscreen();
-                } else if (document.webkitExitFullscreen) {
-                    document.webkitExitFullscreen();
-                }
-            }
+        peer.on('connection', (connection) => {
+            conn = connection;
+            setupConnection();
         });
 
-        startBtn.addEventListener('click', () => {
-            statusText.style.color = '#ff9800';
-            const role = roleSelect.value;
-
-            if (role === 'host') {
-                const file = videoFile.files[0];
-                if (!file) {
-                    statusText.style.color = '#f44336';
-                    statusText.innerText = 'Виберіть відеофайл!';
-                    return;
-                }
-                videoPlayer.src = URL.createObjectURL(file);
-                // Початкове зміщення для лівої половини на хості
-                translateX = 150; 
-                translateY = 0;
-                scale = 2.0;
-                updateTransform();
-
-                const roomCode = generateRoomCode();
-                statusText.innerText = 'Ініціалізація кімнати...';
-
-                try {
-                    peer = new Peer('sp-' + roomCode, {
-                        host: '0.peerjs.com',
-                        port: 443,
-                        secure: true
-                    });
-                    
-                    peer.on('open', () => {
-                        statusText.style.color = '#4CAF50';
-                        statusText.innerText = `Кімната створена! Код: ${roomCode}. Введіть його на S10.`;
-                    });
-
-                    peer.on('error', (err) => {
-                        statusText.style.color = '#f44336';
-                        statusText.innerText = 'Помилка PeerJS: ' + (err.type || err);
-                    });
-
-                    peer.on('connection', (connection) => {
-                        conn = connection;
-                        statusText.innerText = 'Клієнт підключився! Запуск...';
-                        setTimeout(() => {
-                            setupContainer.classList.add('hidden');
-                            playerContainer.style.display = 'block';
-                            setupHostSync();
-                        }, 800);
-                    });
-                } catch (e) {
-                    statusText.style.color = '#f44336';
-                    statusText.innerText = 'Помилка: ' + e.message;
-                }
-
+        peer.on('error', (err) => {
+            if (err.type === 'unavailable-id') {
+                peer.destroy();
+                setTimeout(startHostPeer, 1000);
             } else {
-                const code = roomCodeInput.value.trim();
-                const file = clientVideoFile.files[0];
-                if (code.length !== 5) {
-                    statusText.style.color = '#f44336';
-                    statusText.innerText = 'Введіть 5-значний код кімнати!';
-                    return;
-                }
-                if (!file) {
-                    statusText.style.color = '#f44336';
-                    statusText.innerText = 'Виберіть той самий відеофайл!';
-                    return;
-                }
-                videoPlayer.src = URL.createObjectURL(file);
-                // Початкове зміщення для правої половини на клієнті
-                translateX = -150;
-                translateY = 0;
-                scale = 2.0;
-                updateTransform();
-
-                statusText.innerText = 'Підключення до кімнати...';
-                
-                try {
-                    peer = new Peer({
-                        host: '0.peerjs.com',
-                        port: 443,
-                        secure: true
-                    });
-
-                    peer.on('open', () => {
-                        conn = peer.connect('sp-' + code);
-                        
-                        conn.on('open', () => {
-                            statusText.style.color = '#4CAF50';
-                            statusText.innerText = 'Підключено! Запуск...';
-                            setTimeout(() => {
-                                setupContainer.classList.add('hidden');
-                                playerContainer.style.display = 'block';
-                                setupClientSync();
-                            }, 800);
-                        });
-
-                        conn.on('error', (err) => {
-                            statusText.style.color = '#f44336';
-                            statusText.innerText = 'Помилка з’єднання: ' + err;
-                        });
-                    });
-
-                    peer.on('error', (err) => {
-                        statusText.style.color = '#f44336';
-                        statusText.innerText = 'Помилка PeerJS: ' + (err.type || err);
-                    });
-                } catch (e) {
-                    statusText.style.color = '#f44336';
-                    statusText.innerText = 'Помилка: ' + e.message;
-                }
+                connectionStatus.textContent = 'Помилка: ' + err.type;
             }
         });
+    } catch(e) {
+        connectionStatus.textContent = 'Помилка ініціалізації: ' + e.message;
+    }
+}
 
-        function setupHostSync() {
-            videoPlayer.addEventListener('play', () => {
-                if (conn && conn.open) conn.send({type: 'play', time: videoPlayer.currentTime});
-            });
-            videoPlayer.addEventListener('pause', () => {
-                if (conn && conn.open) conn.send({type: 'pause', time: videoPlayer.currentTime});
-            });
-            videoPlayer.addEventListener('seeked', () => {
-                if (conn && conn.open) conn.send({type: 'seek', time: videoPlayer.currentTime});
-            });
+connectClientBtn.addEventListener('click', () => {
+    if (!localVideoBlobUrl) {
+        alert('Будь ласка, виберіть відеофайл спочатку!');
+        connectionStatus.textContent = 'Статус: Помилка — не вибрано відео';
+        return;
+    }
+    const code = clientCodeInput.value.trim();
+    if (code.length !== 5) { alert('Введіть 5-значний код!'); return; }
 
-            setInterval(() => {
-                if (conn && conn.open && !videoPlayer.paused) {
-                    conn.send({type: 'sync', time: videoPlayer.currentTime});
-                }
-            }, 2000);
-        }
+    requestFullscreenNow();
+    isHost = false;
+    connectionStatus.textContent = 'Статус: Підключення до кімнати...';
 
-        function setupClientSync() {
-            conn.on('data', (data) => {
-                if (data.type === 'play') {
-                    if (Math.abs(videoPlayer.currentTime - data.time) > 0.3) {
-                        videoPlayer.currentTime = data.time;
+    try {
+        peer = new Peer({ host: '0.peerjs.com', port: 443, secure: true });
+
+        peer.on('open', () => {
+            conn = peer.connect('sp-' + code);
+            setupConnection();
+        });
+
+        peer.on('error', (err) => {
+            connectionStatus.textContent = 'Помилка підключення. Перевірте код.';
+        });
+    } catch(e) {
+        connectionStatus.textContent = 'Помилка ініціалізації: ' + e.message;
+    }
+});
+
+function sendScreenInfo() {
+    if (conn && conn.open) {
+        conn.send(JSON.stringify({
+            type: 'screen_info',
+            width: window.innerWidth,
+            height: window.innerHeight,
+            position: positionSelect.value
+        }));
+    }
+}
+
+function setupConnection() {
+    conn.on('open', () => {
+        connectionStatus.textContent = 'Статус: Успішно підключено!';
+        sendScreenInfo();
+
+        setTimeout(() => {
+            setupCard.style.display = 'none';
+            playerScreen.style.display = 'block';
+            updateVideoStyle();
+
+            videoPlayer.currentTime = 0;
+            videoPlayer.play().catch(err => {});
+            playPauseBtn.textContent = '❚❚ Пауза';
+
+            if (isHost) {
+                if (syncInterval) clearInterval(syncInterval);
+                syncInterval = setInterval(() => {
+                    if (conn && conn.open && !videoPlayer.paused && !isSeeking) {
+                        conn.send(JSON.stringify({
+                            type: 'sync_time',
+                            time: videoPlayer.currentTime
+                        }));
                     }
-                    videoPlayer.play().catch(e => console.log(e));
-                } else if (data.type === 'pause') {
-                    videoPlayer.pause();
-                    videoPlayer.currentTime = data.time;
-                } else if (data.type === 'seek' || data.type === 'sync') {
-                    if (Math.abs(videoPlayer.currentTime - data.time) > 0.4) {
-                        videoPlayer.currentTime = data.time;
+                }, 2000);
+            }
+        }, 300);
+    });
+
+    conn.on('data', (data) => {
+        try {
+            const msg = JSON.parse(data);
+            if (msg.type === 'screen_info') {
+                partnerWidth = msg.width;
+                partnerHeight = msg.height;
+                updateVideoStyle();
+                sendScreenInfo();
+            } else if (msg.type === 'play') {
+                videoPlayer.playbackRate = 1.0;
+                videoPlayer.play().catch(e => {});
+                playPauseBtn.textContent = '❚❚ Пауза';
+            } else if (msg.type === 'pause') {
+                videoPlayer.playbackRate = 1.0;
+                videoPlayer.pause();
+                playPauseBtn.textContent = '▶ Грати';
+            } else if (msg.type === 'restart') {
+                videoPlayer.playbackRate = 1.0;
+                videoPlayer.currentTime = 0;
+                videoPlayer.play().catch(e => {});
+                playPauseBtn.textContent = '❚❚ Пауза';
+            } else if (msg.type === 'seek') {
+                videoPlayer.currentTime = msg.time;
+                videoSeek.value = msg.time;
+                currentTimeText.textContent = formatTime(msg.time);
+            } else if (msg.type === 'sync_time' && !isHost && !isSeeking) {
+                if (!videoPlayer.paused) {
+                    const diff = videoPlayer.currentTime - msg.time;
+                    if (Math.abs(diff) > 1.0) {
+                        videoPlayer.currentTime = msg.time;
+                        videoPlayer.playbackRate = 1.0;
+                    } else if (diff > 0.1) {
+                        videoPlayer.playbackRate = 0.93;
+                    } else if (diff < -0.1) {
+                        videoPlayer.playbackRate = 1.07;
+                    } else {
+                        videoPlayer.playbackRate = 1.0;
                     }
                 }
-            });
-        }
-    </script>
+            }
+        } catch(e) {}
+    });
+
+    conn.on('close', () => {
+        if (syncInterval) clearInterval(syncInterval);
+        alert("З'єднання закрито");
+        location.reload();
+    });
+}
+
+positionSelect.addEventListener('change', () => {
+    sendScreenInfo();
+    updateVideoStyle();
+    saveSettings();
+});
+
+videoPlayer.addEventListener('loadedmetadata', () => {
+    updateVideoStyle();
+    durationText.textContent = formatTime(videoPlayer.duration);
+    videoSeek.max = videoPlayer.duration;
+});
+
+videoPlayer.addEventListener('timeupdate', () => {
+    if (!isSeeking) {
+        videoSeek.value = videoPlayer.currentTime;
+        currentTimeText.textContent = formatTime(videoPlayer.currentTime);
+    }
+});
+
+videoSeek.addEventListener('mousedown', () => { isSeeking = true; });
+videoSeek.addEventListener('touchstart', () => { isSeeking = true; });
+
+videoSeek.addEventListener('input', () => {
+    currentTimeText.textContent = formatTime(videoSeek.value);
+});
+
+videoSeek.addEventListener('change', () => {
+    isSeeking = false;
+    const newTime = parseFloat(videoSeek.value);
+    videoPlayer.currentTime = newTime;
+    if (conn && conn.open) {
+        conn.send(JSON.stringify({ type: 'seek', time: newTime }));
+    }
+});
+
+function updateVideoStyle() {
+    const myWidth = window.innerWidth;
+    const myHeight = window.innerHeight;
+    const pWidth = partnerWidth > 0 ? partnerWidth : myWidth;
+
+    const position = positionSelect.value;
+    const videoAspect = (videoPlayer.videoWidth && videoPlayer.videoHeight)
+                      ? (videoPlayer.videoWidth / videoPlayer.videoHeight)
+                      : (16 / 9);
+
+    let finalWidth, finalHeight, leftPos, topPos;
+
+    const combinedWidth = myWidth + pWidth;
+    finalWidth = combinedWidth * videoScaleMultiplier;
+    finalHeight = finalWidth / videoAspect;
+
+    if (position === 'left') {
+        leftPos = videoOffsetX;
+    } else {
+        leftPos = videoOffsetX - pWidth;
+    }
+    topPos = videoOffsetY;
+
+    videoPlayer.style.width = finalWidth + 'px';
+    videoPlayer.style.height = finalHeight + 'px';
+    videoPlayer.style.left = leftPos + 'px';
+    videoPlayer.style.top = topPos + 'px';
+}
+
+window.addEventListener('resize', updateVideoStyle);
+if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateVisualViewport);
+}
+
+function updateVisualViewport() {
+    updateVideoStyle();
+}
+
+playPauseBtn.textContent = '▶ Грати';
+playPauseBtn.addEventListener('click', () => {
+    if (videoPlayer.paused) {
+        videoPlayer.playbackRate = 1.0;
+        videoPlayer.play().catch(e => {});
+        playPauseBtn.textContent = '❚❚ Пауза';
+        if (conn) conn.send(JSON.stringify({ type: 'play' }));
+    } else {
+        videoPlayer.pause();
+        playPauseBtn.textContent = '▶ Грати';
+        if (conn) conn.send(JSON.stringify({ type: 'pause' }));
+    }
+});
+
+restartBtn.addEventListener('click', () => {
+    videoPlayer.playbackRate = 1.0;
+    videoPlayer.currentTime = 0;
+    videoPlayer.play().catch(e => {});
+    playPauseBtn.textContent = '❚❚ Пауза';
+    if (conn) conn.send(JSON.stringify({ type: 'restart' }));
+});
+
+fullscreenBtn.addEventListener('click', () => {
+    const elem = document.documentElement;
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        if (elem.requestFullscreen) elem.requestFullscreen().catch(e => {});
+        else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+    } else {
+        if (document.exitFullscreen) document.exitFullscreen().catch(e => {});
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
+});
+
+document.addEventListener('fullscreenchange', updateFullscreenText);
+document.addEventListener('webkitfullscreenchange', updateFullscreenText);
+
+function updateFullscreenText() {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+        fullscreenBtn.textContent = '✕ Звичайний';
+    } else {
+        fullscreenBtn.textContent = '⛶ Екран';
+    }
+}
+
+playerScreen.addEventListener('click', (e) => {
+    if (!playerControls.contains(e.target)) {
+        playerControls.style.display = playerControls.style.display === 'none' ? 'flex' : 'none';
+    }
+});
+
+function applyShift(dx, dy) {
+    videoOffsetX += dx;
+    videoOffsetY += dy;
+    updateVideoStyle();
+    saveSettings();
+}
+
+function applyScale(ds) {
+    videoScaleMultiplier = Math.max(0.1, Math.min(5.0, videoScaleMultiplier + ds));
+    updateVideoStyle();
+    saveSettings();
+}
+
+document.getElementById('playerSaveBtn').addEventListener('click', saveSettings);
+
+document.getElementById('shiftUpBtn').addEventListener('click', () => applyShift(0, -4));
+document.getElementById('shiftDownBtn').addEventListener('click', () => applyShift(0, 4));
+document.getElementById('shiftLeftBtn').addEventListener('click', () => applyShift(-4, 0));
+document.getElementById('shiftRightBtn').addEventListener('click', () => applyShift(4, 0));
+document.getElementById('scalePlusBtn').addEventListener('click', () => applyScale(0.02));
+document.getElementById('scaleMinusBtn').addEventListener('click', () => applyScale(-0.02));
+document.getElementById('resetShiftBtn').addEventListener('click', () => {
+    videoOffsetX = 0;
+    videoOffsetY = 0;
+    videoScaleMultiplier = 1.0;
+    updateVideoStyle();
+    saveSettings();
+});
+</script>
 </body>
 </html>
