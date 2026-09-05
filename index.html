@@ -78,12 +78,17 @@ button:hover { background: #45a049; }
     border-radius: 8px;
     margin: 0;
     font-weight: normal;
+    pointer-events: auto;
 }
 .mode-btn.active {
     background: #1b5e20;
     border-color: #4CAF50;
     color: #fff;
     font-weight: bold;
+}
+.mode-btn.locked {
+    opacity: 0.7;
+    cursor: default;
 }
 
 .code-display {
@@ -222,8 +227,8 @@ input[type="range"].video-seek {
 <div class="card" id="setupCard">
     <h2>ScreenParty Sync</h2>
 
-    <label style="color: #4CAF50; font-weight: bold;">Режим роботи відео:</label>
-    <div class="mode-group">
+    <label style="color: #4CAF50; font-weight: bold;" id="modeLabelTitle">Режим роботи відео:</label>
+    <div class="mode-group" id="modeGroup">
         <button type="button" class="mode-btn active" data-mode="stream">1. Трансляція з головного (стрімінг)</button>
         <button type="button" class="mode-btn" data-mode="local">2. Два локальних файли на обох</button>
         <button type="button" class="mode-btn" data-mode="p2p">3. Автопередача файлу частинками (P2P)</button>
@@ -423,12 +428,16 @@ function updateUIState() {
         hostSection.classList.remove('hidden');
         clientSection.classList.add('hidden');
         videoPickerContainer.classList.remove('hidden');
+        modeButtons.forEach(btn => btn.classList.remove('locked'));
         if (currentMode === 'stream') videoLabel.textContent = 'Виберіть відеофайл для стрімінгу:';
         else if (currentMode === 'local') videoLabel.textContent = 'Виберіть ваш локальний відеофайл:';
         else if (currentMode === 'p2p') videoLabel.textContent = 'Виберіть відеофайл для автопередачі:';
     } else {
         hostSection.classList.add('hidden');
         clientSection.classList.remove('hidden');
+        // Для клієнта вибір режиму блокується або синхронізується з хостом
+        modeButtons.forEach(btn => btn.classList.add('locked'));
+        
         if (currentMode === 'stream' || currentMode === 'p2p') {
             videoPickerContainer.classList.add('hidden');
         } else {
@@ -440,6 +449,7 @@ function updateUIState() {
 
 modeButtons.forEach(btn => {
     btn.addEventListener('click', () => {
+        if (roleSelect.value === 'client') return; // Клієнт не може змінювати вручну до підключення
         modeButtons.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentMode = btn.getAttribute('data-mode');
@@ -510,10 +520,18 @@ async function sendFileToClient(file) {
         mime: file.type
     }));
 
-    const CHUNK_SIZE = 64 * 1024; // 64 KB
+    const CHUNK_SIZE = 32 * 1024; // 32 KB для стабільності на мобільних
     let offset = 0;
 
     while (offset < file.size) {
+        if (!conn || !conn.open) break;
+
+        // Контроль буфера WebRTC, щоб уникнути переповнення та зависань
+        if (conn.dataChannel && conn.dataChannel.bufferedAmount > 256 * 1024) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+            continue;
+        }
+
         const chunk = file.slice(offset, offset + CHUNK_SIZE);
         const buffer = await chunk.arrayBuffer();
         conn.send(buffer);
@@ -521,6 +539,8 @@ async function sendFileToClient(file) {
         
         const percent = Math.round((offset / file.size) * 100);
         currentTimeText.textContent = `📤 ${percent}%`;
+        
+        await new Promise(resolve => setTimeout(resolve, 1));
     }
     currentTimeText.textContent = formatTime(videoPlayer.currentTime);
 
@@ -592,19 +612,18 @@ connectClientBtn.addEventListener('click', () => {
             setupConnection();
         });
 
-        if (currentMode === 'stream') {
-            peer.on('call', (call) => {
-                call.answer();
-                currentCall = call;
-                call.on('stream', (remoteStream) => {
-                    videoPlayer.src = "";
-                    videoPlayer.srcObject = remoteStream;
-                    videoPlayer.muted = true;
-                    videoPlayer.play().catch(e => {});
-                    playPauseBtn.textContent = '❚❚ Пауза';
-                });
+        // Слухаємо потік для режиму стрімінгу
+        peer.on('call', (call) => {
+            call.answer();
+            currentCall = call;
+            call.on('stream', (remoteStream) => {
+                videoPlayer.src = "";
+                videoPlayer.srcObject = remoteStream;
+                videoPlayer.muted = true;
+                videoPlayer.play().catch(e => {});
+                playPauseBtn.textContent = '❚❚ Пауза';
             });
-        }
+        });
 
         peer.on('error', () => {
             connectionStatus.textContent = 'Помилка підключення. Перевірте код.';
@@ -629,6 +648,11 @@ function setupConnection() {
     const initConnection = () => {
         connectionStatus.textContent = 'Статус: Успішно підключено!';
         sendScreenInfo();
+
+        // Якщо ми хост, надсилаємо поточний режим клієнту
+        if (isHost && conn && conn.open) {
+            conn.send(JSON.stringify({ type: 'sync_mode', mode: currentMode }));
+        }
 
         setTimeout(() => {
             setupCard.style.display = 'none';
@@ -681,6 +705,7 @@ function setupConnection() {
 
     conn.on('data', (data) => {
         try {
+            // Обробка бінарних чанків файлу (Режим 3 P2P)
             if (data instanceof ArrayBuffer) {
                 if (incomingFileMeta) {
                     incomingChunks.push(data);
@@ -699,7 +724,6 @@ function setupConnection() {
                             durationText.textContent = formatTime(videoPlayer.duration);
                             videoSeek.max = videoPlayer.duration;
                             
-                            // АВТОМАТИЧНИЙ СТАРТ ВІДТВОРЕННЯ ДЛЯ КЛІЄНТА ПІСЛЯ ЗАВАНТАЖЕННЯ ФАЙЛУ
                             videoPlayer.play().then(() => {
                                 playPauseBtn.textContent = '❚❚ Пауза';
                             }).catch(e => {});
@@ -714,7 +738,17 @@ function setupConnection() {
             }
 
             const msg = JSON.parse(data);
-            if (msg.type === 'screen_info') {
+            if (msg.type === 'sync_mode') {
+                currentMode = msg.mode;
+                modeButtons.forEach(b => {
+                    if (b.getAttribute('data-mode') === currentMode) {
+                        b.classList.add('active');
+                    } else {
+                        b.classList.remove('active');
+                    }
+                });
+                updateUIState();
+            } else if (msg.type === 'screen_info') {
                 partnerWidth = msg.width;
                 partnerHeight = msg.height;
                 updateVideoStyle();
