@@ -448,6 +448,20 @@ function updateUIState() {
     }
 }
 
+// Автоматичне призначення позиції залежно від ролі
+roleSelect.addEventListener('change', () => {
+    if (roleSelect.value === 'client') {
+        positionSelect.value = 'right';
+    } else {
+        positionSelect.value = 'left';
+    }
+    updateUIState();
+});
+
+// Встановлюємо початкові значення
+positionSelect.value = 'left';
+updateUIState();
+
 modeButtons.forEach(btn => {
     btn.addEventListener('click', () => {
         if (roleSelect.value === 'client') return;
@@ -457,9 +471,6 @@ modeButtons.forEach(btn => {
         updateUIState();
     });
 });
-
-roleSelect.addEventListener('change', updateUIState);
-updateUIState();
 
 videoInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
@@ -510,7 +521,6 @@ newVideoInput.addEventListener('change', async (e) => {
     }
 });
 
-// Надійне надсилання файлу частинами (P2P) з контролем буфера
 async function sendFileToClient(file) {
     if (!conn || !conn.open) return;
     connectionStatus.textContent = 'Статус: Передача файлу клієнту (0%)...';
@@ -522,14 +532,13 @@ async function sendFileToClient(file) {
         mime: file.type
     }));
 
-    const CHUNK_SIZE = 32 * 1024; // 32 КБ шматки
-    const maxBufferSize = 256 * 1024; // Контроль заповнення буфера
+    const CHUNK_SIZE = 32 * 1024;
+    const maxBufferSize = 256 * 1024;
     let offset = 0;
 
     while (offset < file.size) {
         if (!conn || !conn.open) break;
 
-        // Потоковий контроль (Backpressure): чекаємо, поки буфер розвантажиться
         while (conn.dataChannel && conn.dataChannel.bufferedAmount > maxBufferSize) {
             await new Promise(resolve => setTimeout(resolve, 20));
             if (!conn || !conn.open) return;
@@ -704,7 +713,6 @@ function setupConnection() {
 
     conn.on('data', (data) => {
         try {
-            // Обробка бінарних шматків файлу для Режиму 3 (P2P)
             if (data instanceof ArrayBuffer) {
                 if (incomingFileMeta) {
                     incomingChunks.push(data);
@@ -752,7 +760,6 @@ function setupConnection() {
                 partnerWidth = msg.width;
                 partnerHeight = msg.height;
                 updateVideoStyle();
-                sendScreenInfo();
             } else if (msg.type === 'file_meta') {
                 incomingFileMeta = msg;
                 incomingChunks = [];
