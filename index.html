@@ -88,7 +88,7 @@ video.vid-el {
     left: 0;
     object-fit: fill;
     pointer-events: none;
-    /* М'якіша компенсація блідості при стрімі */
+    /* М'яка компенсація блідості при стрімі */
     filter: contrast(1.05) saturate(1.10);
 }
 
@@ -429,7 +429,7 @@ newVideoInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file) {
         localVideoBlobUrl = URL.createObjectURL(file);
-        videoPlayer.srcObject = null; // очищаємо старий стрім якщо був
+        videoPlayer.srcObject = null;
         videoPlayer.src = localVideoBlobUrl;
         videoPlayer.load();
         updateVideoStyle();
@@ -444,13 +444,15 @@ newVideoInput.addEventListener('change', (e) => {
                 if (currentCall) {
                     currentCall.close();
                 }
-                if (videoPlayer.captureStream) {
-                    localStream = videoPlayer.captureStream();
-                    currentCall = peer.call(conn.peer, localStream);
-                } else if (videoPlayer.mozCaptureStream) {
-                    localStream = videoPlayer.mozCaptureStream();
-                    currentCall = peer.call(conn.peer, localStream);
-                }
+                setTimeout(() => {
+                    if (videoPlayer.captureStream) {
+                        localStream = videoPlayer.captureStream();
+                        currentCall = peer.call(conn.peer, localStream);
+                    } else if (videoPlayer.mozCaptureStream) {
+                        localStream = videoPlayer.mozCaptureStream();
+                        currentCall = peer.call(conn.peer, localStream);
+                    }
+                }, 200);
                 conn.send(JSON.stringify({ type: 'restart' }));
             }
         }).catch(err => {
@@ -528,7 +530,7 @@ connectClientBtn.addEventListener('click', () => {
                 call.answer();
                 currentCall = call;
                 call.on('stream', (remoteStream) => {
-                    videoPlayer.src = ""; // прибираємо локальний src, якщо був
+                    videoPlayer.src = "";
                     videoPlayer.srcObject = remoteStream;
                     videoPlayer.muted = true;
                     videoPlayer.play().catch(e => {});
@@ -622,7 +624,6 @@ function setupConnection() {
                 playPauseBtn.textContent = '▶ Грати';
             } else if (msg.type === 'restart') {
                 videoPlayer.playbackRate = 1.0;
-                // У режимі стріму currentTime не можна ставити на srcObject, керується потоком
                 if (!videoPlayer.srcObject) {
                     videoPlayer.currentTime = 0;
                 }
@@ -811,12 +812,33 @@ syncTimeBtn.addEventListener('click', () => {
 
 restartBtn.addEventListener('click', () => {
     videoPlayer.playbackRate = 1.0;
-    if (!videoPlayer.srcObject) {
+    const mode = modeSelect.value;
+
+    if (mode === 'stream' && isHost) {
         videoPlayer.currentTime = 0;
+        videoPlayer.play().catch(e => {});
+        playPauseBtn.textContent = '❚❚ Пауза';
+        if (conn && conn.open) {
+            if (currentCall) currentCall.close();
+            setTimeout(() => {
+                if (videoPlayer.captureStream) {
+                    localStream = videoPlayer.captureStream();
+                    currentCall = peer.call(conn.peer, localStream);
+                } else if (videoPlayer.mozCaptureStream) {
+                    localStream = videoPlayer.mozCaptureStream();
+                    currentCall = peer.call(conn.peer, localStream);
+                }
+            }, 200);
+            conn.send(JSON.stringify({ type: 'restart' }));
+        }
+    } else {
+        if (!videoPlayer.srcObject) {
+            videoPlayer.currentTime = 0;
+        }
+        videoPlayer.play().catch(e => {});
+        playPauseBtn.textContent = '❚❚ Пауза';
+        if (conn && conn.open) conn.send(JSON.stringify({ type: 'restart' }));
     }
-    videoPlayer.play().catch(e => {});
-    playPauseBtn.textContent = '❚❚ Пауза';
-    if (conn && conn.open) conn.send(JSON.stringify({ type: 'restart' }));
 });
 
 fullscreenBtn.addEventListener('click', () => {
