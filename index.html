@@ -197,8 +197,9 @@ input[type="range"].video-seek {
 
     <label style="color: #4CAF50; font-weight: bold;">Режим роботи відео:</label>
     <select id="modeSelect" style="border: 2px solid #4CAF50;">
-        <option value="stream">Трансляція з головного (1 файл)</option>
-        <option value="local">Локальні файли на обох (2 файли)</option>
+        <option value="stream">1. Трансляція з головного (стрімінг)</option>
+        <option value="local">2. Локальні файли на обох (ручний вибір)</option>
+        <option value="p2p">3. Автоматична передача файлу (P2P)</option>
     </select>
 
     <label>Роль пристрою:</label>
@@ -317,6 +318,11 @@ let localStream = null;
 let currentCall = null;
 let isHost = false;
 let localVideoBlobUrl = null;
+let selectedFileObject = null;
+
+let incomingFileMeta = null;
+let incomingChunks = [];
+let receivedBytes = 0;
 
 let videoOffsetX = 0;
 let videoOffsetY = 0;
@@ -390,11 +396,13 @@ function updateUIState() {
         hostSection.classList.remove('hidden');
         clientSection.classList.add('hidden');
         videoPickerContainer.classList.remove('hidden');
-        videoLabel.textContent = mode === 'stream' ? 'Виберіть відеофайл для трансляції:' : 'Виберіть ваш локальний відеофайл:';
+        if (mode === 'stream') videoLabel.textContent = 'Виберіть відеофайл для стрімінгу:';
+        else if (mode === 'local') videoLabel.textContent = 'Виберіть ваш локальний відеофайл:';
+        else if (mode === 'p2p') videoLabel.textContent = 'Виберіть відеофайл для автопередачі:';
     } else {
         hostSection.classList.add('hidden');
         clientSection.classList.remove('hidden');
-        if (mode === 'stream') {
+        if (mode === 'stream' || mode === 'p2p') {
             videoPickerContainer.classList.add('hidden');
         } else {
             videoPickerContainer.classList.remove('hidden');
@@ -410,6 +418,7 @@ updateUIState();
 videoInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file) {
+        selectedFileObject = file;
         localVideoBlobUrl = URL.createObjectURL(file);
         videoPlayer.src = localVideoBlobUrl;
         connectionStatus.textContent = 'Статус: Відео завантажено, можна запускати';
@@ -417,16 +426,18 @@ videoInput.addEventListener('change', (e) => {
 });
 
 changeVideoBtn.addEventListener('click', () => {
-    if (modeSelect.value === 'stream' && !isHost) {
-        alert("Тільки головний телефон може змінювати відеофайл у режимі трансляції.");
+    const mode = modeSelect.value;
+    if ((mode === 'stream' || mode === 'p2p') && !isHost) {
+        alert("Тільки головний телефон може змінювати відеофайл у цьому режимі.");
         return;
     }
     newVideoInput.click();
 });
 
-newVideoInput.addEventListener('change', (e) => {
+newVideoInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (file) {
+        selectedFileObject = file;
         localVideoBlobUrl = URL.createObjectURL(file);
         videoPlayer.srcObject = null;
         videoPlayer.src = localVideoBlobUrl;
@@ -440,34 +451,60 @@ newVideoInput.addEventListener('change', (e) => {
             videoPlayer.currentTime = 0;
 
             if (mode === 'stream' && isHost && conn && conn.open) {
-                if (currentCall) {
-                    currentCall.close();
-                }
+                if (currentCall) currentCall.close();
                 setTimeout(() => {
                     if (videoPlayer.captureStream) {
                         localStream = videoPlayer.captureStream();
                         currentCall = peer.call(conn.peer, localStream);
-                    } else if (videoPlayer.mozCaptureStream) {
-                        localStream = videoPlayer.mozCaptureStream();
-                        currentCall = peer.call(conn.peer, localStream);
                     }
                 }, 200);
                 conn.send(JSON.stringify({ type: 'new_video', duration: videoPlayer.duration }));
+            } else if (mode === 'p2p' && isHost && conn && conn.open) {
+                conn.send(JSON.stringify({ type: 'new_video', duration: videoPlayer.duration }));
+                sendFileToClient(file);
             }
-        }).catch(err => {
-            console.log("Помилка автоплею при зміні відео:", err);
-        });
+        }).catch(err => {});
     }
 });
+
+async function sendFileToClient(file) {
+    if (!conn || !conn.open) return;
+    connectionStatus.textContent = 'Статус: Передача файлу клієнту (0%)...';
+    
+    conn.send(JSON.stringify({
+        type: 'file_meta',
+        name: file.name,
+        size: file.size,
+        mime: file.type
+    }));
+
+    const CHUNK_SIZE = 64 * 1024; // 64 KB
+    let offset = 0;
+
+    while (offset < file.size) {
+        const chunk = file.slice(offset, offset + CHUNK_SIZE);
+        const buffer = await chunk.arrayBuffer();
+        conn.send(buffer);
+        offset += chunk.size;
+        
+        const percent = Math.round((offset / file.size) * 100);
+        currentTimeText.textContent = `📤 ${percent}%`;
+    }
+    currentTimeText.textContent = formatTime(videoPlayer.currentTime);
+
+    setTimeout(() => {
+        if (conn && conn.open && videoPlayer.duration) {
+            conn.send(JSON.stringify({ type: 'duration', duration: videoPlayer.duration }));
+        }
+    }, 500);
+}
 
 function generateRandomCode() {
     return Math.floor(10000 + Math.random() * 90000).toString();
 }
 
 startHostBtn.addEventListener('click', () => {
-    const mode = modeSelect.value;
-    if (mode === 'stream' && !localVideoBlobUrl) { alert('Виберіть відеофайл для трансляції!'); return; }
-    if (mode === 'local' && !localVideoBlobUrl) { alert('Виберіть локальний відеофайл!'); return; }
+    if (!localVideoBlobUrl) { alert('Виберіть відеофайл!'); return; }
 
     requestFullscreenNow();
     isHost = true;
@@ -573,16 +610,16 @@ function setupConnection() {
                 if (videoPlayer.captureStream) {
                     localStream = videoPlayer.captureStream();
                     currentCall = peer.call(conn.peer, localStream);
-                } else if (videoPlayer.mozCaptureStream) {
-                    localStream = videoPlayer.mozCaptureStream();
-                    currentCall = peer.call(conn.peer, localStream);
                 }
-                // Передаємо тривалість клієнту одразу при підключенні
                 setTimeout(() => {
                     if (conn && conn.open && videoPlayer.duration) {
                         conn.send(JSON.stringify({ type: 'duration', duration: videoPlayer.duration }));
                     }
                 }, 500);
+            } else if (mode === 'p2p' && isHost) {
+                if (selectedFileObject) {
+                    sendFileToClient(selectedFileObject);
+                }
             }
 
             if (!videoPlayer.srcObject) {
@@ -613,12 +650,44 @@ function setupConnection() {
 
     conn.on('data', (data) => {
         try {
+            if (data instanceof ArrayBuffer) {
+                // Прийом чанків файлу в режимі p2p
+                if (incomingFileMeta) {
+                    incomingChunks.push(data);
+                    receivedBytes += data.byteLength;
+                    const percent = Math.round((receivedBytes / incomingFileMeta.size) * 100);
+                    durationText.textContent = `⏳ ${percent}%`;
+                    currentTimeText.textContent = "Отримання";
+
+                    if (receivedBytes >= incomingFileMeta.size) {
+                        const blob = new Blob(incomingChunks, { type: incomingFileMeta.mime });
+                        localVideoBlobUrl = URL.createObjectURL(blob);
+                        videoPlayer.src = localVideoBlobUrl;
+                        videoPlayer.load();
+
+                        videoPlayer.addEventListener('loadedmetadata', () => {
+                            durationText.textContent = formatTime(videoPlayer.duration);
+                            videoSeek.max = videoPlayer.duration;
+                        }, { once: true });
+
+                        incomingFileMeta = null;
+                        incomingChunks = [];
+                        receivedBytes = 0;
+                    }
+                }
+                return;
+            }
+
             const msg = JSON.parse(data);
             if (msg.type === 'screen_info') {
                 partnerWidth = msg.width;
                 partnerHeight = msg.height;
                 updateVideoStyle();
                 sendScreenInfo();
+            } else if (msg.type === 'file_meta') {
+                incomingFileMeta = msg;
+                incomingChunks = [];
+                receivedBytes = 0;
             } else if (msg.type === 'duration' || msg.type === 'new_video') {
                 if (msg.duration) {
                     videoSeek.max = msg.duration;
@@ -654,13 +723,11 @@ function setupConnection() {
                 currentTimeText.textContent = formatTime(msg.time);
             } else if (msg.type === 'sync_time') {
                 if (videoPlayer.srcObject) {
-                    // Якщо це клієнт у режимі stream — оновлюємо таймлайн з синхронізації головного
                     if (!isSeeking) {
                         videoSeek.value = msg.time;
                         currentTimeText.textContent = formatTime(msg.time);
                     }
                 } else if (!isHost && !isSeeking) {
-                    // Клієнт у локальному режимі
                     const diff = videoPlayer.currentTime - msg.time;
                     if (Math.abs(diff) > 1.0) {
                         videoPlayer.currentTime = msg.time;
@@ -695,7 +762,8 @@ videoPlayer.addEventListener('loadedmetadata', () => {
     durationText.textContent = formatTime(videoPlayer.duration);
     videoSeek.max = videoPlayer.duration;
 
-    if (isHost && conn && conn.open) {
+    const mode = modeSelect.value;
+    if (isHost && conn && conn.open && mode !== 'p2p') {
         conn.send(JSON.stringify({ type: 'duration', duration: videoPlayer.duration }));
     }
 });
@@ -856,9 +924,6 @@ restartBtn.addEventListener('click', () => {
             setTimeout(() => {
                 if (videoPlayer.captureStream) {
                     localStream = videoPlayer.captureStream();
-                    currentCall = peer.call(conn.peer, localStream);
-                } else if (videoPlayer.mozCaptureStream) {
-                    localStream = videoPlayer.mozCaptureStream();
                     currentCall = peer.call(conn.peer, localStream);
                 }
             }, 200);
