@@ -194,16 +194,16 @@ input[type="range"].video-seek {
 <div class="card" id="setupCard">
     <h2>ScreenParty Sync</h2>
 
-    <label>Режим роботи відео:</label>
-    <select id="modeSelect">
+    <label style="color: #4CAF50; font-weight: bold;">Режим роботи відео:</label>
+    <select id="modeSelect" style="border: 2px solid #4CAF50;">
         <option value="stream">Трансляція з головного (1 файл)</option>
         <option value="local">Локальні файли на обох (2 файли)</option>
     </select>
 
     <label>Роль пристрою:</label>
     <select id="roleSelect">
-        <option value="host">Головний (Host - S25+)</option>
-        <option value="client">Другий (Client - S10)</option>
+        <option value="host">Головний (Host)</option>
+        <option value="client">Другий (Client)</option>
     </select>
 
     <label>Позиція екрана:</label>
@@ -393,7 +393,7 @@ function updateUIState() {
         hostSection.classList.add('hidden');
         clientSection.classList.remove('hidden');
         if (mode === 'stream') {
-            videoPickerContainer.classList.add('hidden'); // Клієнту не треба вибирати файл у режимі стріму
+            videoPickerContainer.classList.add('hidden');
         } else {
             videoPickerContainer.classList.remove('hidden');
             videoLabel.textContent = 'Виберіть такий же локальний відеофайл:';
@@ -422,6 +422,7 @@ changeVideoBtn.addEventListener('click', () => {
     newVideoInput.click();
 });
 
+// ВИПРАВЛЕННЯ ДЛЯ ЗМІНИ ВІДЕО НА ЛЬОТУ В РЕЖИМІ СТРІМУ
 newVideoInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -432,6 +433,18 @@ newVideoInput.addEventListener('change', (e) => {
         videoPlayer.currentTime = 0;
         videoPlayer.pause();
         playPauseBtn.textContent = '▶ Грати';
+
+        const mode = modeSelect.value;
+        if (mode === 'stream' && isHost && conn && conn.open) {
+            if (videoPlayer.captureStream) {
+                localStream = videoPlayer.captureStream();
+                peer.call(conn.peer, localStream);
+            } else if (videoPlayer.mozCaptureStream) {
+                localStream = videoPlayer.mozCaptureStream();
+                peer.call(conn.peer, localStream);
+            }
+            conn.send(JSON.stringify({ type: 'restart' }));
+        }
     }
 });
 
@@ -499,12 +512,11 @@ connectClientBtn.addEventListener('click', () => {
             setupConnection();
         });
 
-        // Якщо режим стріму, клієнт чекає на відеопотік
         if (mode === 'stream') {
             peer.on('call', (call) => {
                 call.answer();
                 call.on('stream', (remoteStream) => {
-                    videoPlayer.muted = true; // Заглушуємо клієнта, щоб не було луни
+                    videoPlayer.muted = true;
                     videoPlayer.srcObject = remoteStream;
                     videoPlayer.play().catch(e => {});
                 });
@@ -546,7 +558,6 @@ function setupConnection() {
 
             const mode = modeSelect.value;
 
-            // Якщо режим трансляції і це хост — надсилаємо стрім клієнту
             if (mode === 'stream' && isHost) {
                 if (videoPlayer.captureStream) {
                     localStream = videoPlayer.captureStream();
