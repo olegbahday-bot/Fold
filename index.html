@@ -651,11 +651,13 @@ function setupConnection() {
                 }
             }
 
-            if (!videoPlayer.srcObject) {
+            if (!videoPlayer.srcObject && currentMode !== 'p2p') {
                 videoPlayer.currentTime = 0;
             }
-            videoPlayer.play().catch(err => {});
-            playPauseBtn.textContent = '❚❚ Пауза';
+            if (currentMode !== 'p2p' || isHost) {
+                videoPlayer.play().catch(err => {});
+                playPauseBtn.textContent = '❚❚ Пауза';
+            }
 
             if (isHost) {
                 if (syncInterval) clearInterval(syncInterval);
@@ -696,6 +698,11 @@ function setupConnection() {
                         videoPlayer.addEventListener('loadedmetadata', () => {
                             durationText.textContent = formatTime(videoPlayer.duration);
                             videoSeek.max = videoPlayer.duration;
+                            
+                            // АВТОМАТИЧНИЙ СТАРТ ВІДТВОРЕННЯ ДЛЯ КЛІЄНТА ПІСЛЯ ЗАВАНТАЖЕННЯ ФАЙЛУ
+                            videoPlayer.play().then(() => {
+                                playPauseBtn.textContent = '❚❚ Пауза';
+                            }).catch(e => {});
                         }, { once: true });
 
                         incomingFileMeta = null;
