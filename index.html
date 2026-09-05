@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ScreenParty P2P Ultimate</title>
+<title>ScreenParty P2P Ultimate Synchronized</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
 <style>
 body {
@@ -155,6 +155,7 @@ video.vid-el {
 .fullscreen-btn { background-color: #FF9800; }
 .save-btn { background-color: #FF5722; }
 .sync-btn { background-color: #9C27B0; }
+.sound-btn { background-color: #009688; }
 
 .timeline-container { width: 100%; margin-bottom: 4px; box-sizing: border-box; }
 .time-labels {
@@ -249,7 +250,7 @@ input[type="range"].video-seek {
             <button id="shiftUpBtn">▲ Вгору</button>
             <button id="shiftRightBtn">Праворуч ►</button>
 
-            <button class="reset-btn" style="visibility: hidden;"></button>
+            <button id="muteBtn" class="sound-btn">🔊 Звук</button>
             <button id="shiftDownBtn">▼ Вниз</button>
             <button id="syncTimeBtn" class="sync-btn">⚡ Синхроніз.</button>
         </div>
@@ -281,6 +282,7 @@ const playPauseBtn = document.getElementById('playPauseBtn');
 const restartBtn = document.getElementById('restartBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
 const syncTimeBtn = document.getElementById('syncTimeBtn');
+const muteBtn = document.getElementById('muteBtn');
 
 const currentTimeText = document.getElementById('currentTimeText');
 const durationText = document.getElementById('durationText');
@@ -439,7 +441,6 @@ function setupConnection() {
         if (isHost) {
             conn.send(JSON.stringify({ type: 'sync_mode', mode: currentMode }));
         } else {
-            // Клієнт повідомляє, що він повністю готовий отримувати файл
             setTimeout(() => {
                 conn.send(JSON.stringify({ type: 'client_ready' }));
                 connectionStatus.textContent = 'Статус: Очікування файлу від головного телефону...';
@@ -485,12 +486,26 @@ function setupConnection() {
                     localVideoBlobUrl = URL.createObjectURL(blob);
                     videoPlayer.src = localVideoBlobUrl;
                     videoPlayer.load();
-                    connectionStatus.textContent = 'Статус: Файл повністю завантажено! Запуск...';
+                    connectionStatus.textContent = 'Статус: Файл повністю завантажено! Готовність до синхронізації...';
                     
+                    // Повідомляємо хосту, що клієнт повністю завантажив файл і готовий стартувати
                     setTimeout(() => {
-                        enterPlayerMode();
-                    }, 800);
+                        conn.send(JSON.stringify({ type: 'client_file_ready' }));
+                        enterPlayerMode(false); // Заходимо в плеєр на паузі/очікуванні старту
+                    }, 500);
                 }
+            } else if (msg.type === 'client_file_ready' && isHost) {
+                // Хост отримав підтвердження, що клієнт завантажив файл — запускаємо синхронно з 0
+                connectionStatus.textContent = 'Статус: Обидва пристрої готові! Синхронний старт...';
+                setTimeout(() => {
+                    videoPlayer.currentTime = 0;
+                    videoPlayer.play().catch(e => {});
+                    playPauseBtn.textContent = '❚❚ Пауза';
+                    if (conn && conn.open) {
+                        conn.send(JSON.stringify({ type: 'play', time: 0 }));
+                    }
+                    enterPlayerMode(true);
+                }, 600);
             } else if (msg.type === 'screen_info') {
                 partnerWidth = msg.width;
                 updateVideoStyle();
@@ -498,13 +513,14 @@ function setupConnection() {
                 if (msg.time !== undefined) videoPlayer.currentTime = msg.time;
                 videoPlayer.play().catch(e=>{}); 
                 playPauseBtn.textContent = '❚❚ Пауза';
+                if (playerScreen.style.display !== 'block') enterPlayerMode(true);
             } else if (msg.type === 'pause') { 
                 videoPlayer.pause(); 
                 playPauseBtn.textContent = '▶ Грати';
             } else if (msg.type === 'seek') { 
                 videoPlayer.currentTime = msg.time; 
             } else if (msg.type === 'sync_time') {
-                if (!isHost && !isSeeking && Math.abs(videoPlayer.currentTime - msg.time) > 0.3) {
+                if (!isHost && !isSeeking && Math.abs(videoPlayer.currentTime - msg.time) > 0.2) {
                     videoPlayer.currentTime = msg.time;
                 }
             }
@@ -513,7 +529,7 @@ function setupConnection() {
 }
 
 function sendFileToClientBase64(file) {
-    const CHUNK_SIZE = 16384; // Зменшено до 16KB для абсолютної стабільності на мобільних
+    const CHUNK_SIZE = 16384;
     let offset = 0;
 
     conn.send(JSON.stringify({
@@ -538,13 +554,9 @@ function sendFileToClientBase64(file) {
             connectionStatus.textContent = `Відправка файлу: ${percent}%`;
 
             if (offset < file.size) {
-                // Невеличка пауза (5мс) між чанками, щоб не перевантажувати буфер WebRTC
                 setTimeout(readNextChunk, 5);
             } else {
-                connectionStatus.textContent = 'Статус: Файл передано! Очікування запуску...';
-                setTimeout(() => {
-                    enterPlayerMode();
-                }, 1000);
+                connectionStatus.textContent = 'Статус: Файл передано! Очікування клієнта...';
             }
         };
         reader.readAsDataURL(slice);
@@ -553,7 +565,7 @@ function sendFileToClientBase64(file) {
     setTimeout(readNextChunk, 200);
 }
 
-function enterPlayerMode() {
+function enterPlayerMode(autoPlay = false) {
     setupCard.style.display = 'none';
     playerScreen.style.display = 'block';
     
@@ -563,11 +575,13 @@ function enterPlayerMode() {
 
     updateVideoStyle();
     
-    videoPlayer.play().then(() => {
-        playPauseBtn.textContent = '❚❚ Пауза';
-    }).catch(e => {
-        playPauseBtn.textContent = '▶ Торкніться екрана';
-    });
+    if (autoPlay) {
+        videoPlayer.play().then(() => {
+            playPauseBtn.textContent = '❚❚ Пауза';
+        }).catch(e => {
+            playPauseBtn.textContent = '▶ Торкніться екрана';
+        });
+    }
 
     if (conn && conn.open) {
         conn.send(JSON.stringify({ type: 'screen_info', width: window.innerWidth }));
@@ -580,7 +594,7 @@ function enterPlayerMode() {
             if (conn && conn.open && !videoPlayer.paused) {
                 conn.send(JSON.stringify({ type: 'sync_time', time: videoPlayer.currentTime }));
             }
-        }, 500);
+        }, 400);
     }
 }
 
@@ -641,6 +655,12 @@ restartBtn.addEventListener('click', () => {
 
 syncTimeBtn.addEventListener('click', () => {
     if (conn && conn.open) conn.send(JSON.stringify({ type: 'seek', time: videoPlayer.currentTime }));
+});
+
+muteBtn.addEventListener('click', () => {
+    videoPlayer.muted = !videoPlayer.muted;
+    muteBtn.textContent = videoPlayer.muted ? '🔇 Без звуку' : '🔊 Звук';
+    muteBtn.style.backgroundColor = videoPlayer.muted ? '#d32f2f' : '#009688';
 });
 
 fullscreenBtn.addEventListener('click', () => {
