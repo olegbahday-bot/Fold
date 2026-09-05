@@ -307,7 +307,7 @@ let localVideoBlobUrl = null;
 let selectedFileObject = null;
 
 let incomingFileMeta = null;
-let incomingBase64Chunks = [];
+let incomingChunks = [];
 let receivedBytes = 0;
 let clientIsReady = false;
 
@@ -401,7 +401,7 @@ function handleSelectedFile(file) {
         connectionStatus.textContent = 'Статус: Файл завантажено на головному телефоні';
         
         if (playerScreen.style.display === 'block' && isHost && currentMode === 'p2p' && conn && conn.open) {
-            sendFileToClientBase64(file);
+            sendFileToClientBinary(file);
         }
     }
 }
@@ -478,40 +478,61 @@ function setupConnection() {
     conn.on('data', (rawdata) => {
         try {
             requestWakeLock();
-            const msg = typeof rawdata === 'string' ? JSON.parse(rawdata) : rawdata;
             
-            if (msg.type === 'client_ready' && isHost) {
-                clientIsReady = true;
-                connectionStatus.textContent = 'Статус: Клієнт готовий. Початок передачі файлу...';
-                if (currentMode === 'p2p' && selectedFileObject) {
-                    setTimeout(() => sendFileToClientBase64(selectedFileObject), 300);
+            if (typeof rawdata === 'string') {
+                const msg = JSON.parse(rawdata);
+                
+                if (msg.type === 'client_ready' && isHost) {
+                    clientIsReady = true;
+                    connectionStatus.textContent = 'Статус: Клієнт готовий. Початок передачі файлу...';
+                    if (currentMode === 'p2p' && selectedFileObject) {
+                        setTimeout(() => sendFileToClientBinary(selectedFileObject), 300);
+                    }
+                } else if (msg.type === 'file_meta') {
+                    incomingFileMeta = msg;
+                    incomingChunks = [];
+                    receivedBytes = 0;
+                    videoPlayer.pause();
+                    videoPlayer.src = "";
+                    connectionStatus.textContent = `Завантаження файлу: 0%`;
+                } else if (msg.type === 'client_file_ready' && isHost) {
+                    connectionStatus.textContent = 'Статус: Обидва пристрої готові!';
+                    setTimeout(() => {
+                        videoPlayer.currentTime = 0;
+                        videoPlayer.play().catch(e => {});
+                        playPauseBtn.textContent = '❚❚ Пауза';
+                        if (conn && conn.open) {
+                            conn.send(JSON.stringify({ type: 'play', time: 0 }));
+                        }
+                        enterPlayerMode(true);
+                    }, 600);
+                } else if (msg.type === 'screen_info') {
+                    partnerWidth = msg.width;
+                    updateVideoStyle();
+                } else if (msg.type === 'play') { 
+                    if (msg.time !== undefined) videoPlayer.currentTime = msg.time;
+                    videoPlayer.play().catch(e=>{}); 
+                    playPauseBtn.textContent = '❚❚ Пауза';
+                    if (playerScreen.style.display !== 'block') enterPlayerMode(true);
+                } else if (msg.type === 'pause') { 
+                    videoPlayer.pause(); 
+                    playPauseBtn.textContent = '▶ Грати';
+                } else if (msg.type === 'seek') { 
+                    videoPlayer.currentTime = msg.time; 
+                } else if (msg.type === 'sync_time') {
+                    if (!isHost && !isSeeking && Math.abs(videoPlayer.currentTime - msg.time) > 0.2) {
+                        videoPlayer.currentTime = msg.time;
+                    }
                 }
-            } else if (msg.type === 'file_meta') {
-                incomingFileMeta = msg;
-                incomingBase64Chunks = [];
-                receivedBytes = 0;
-                videoPlayer.pause();
-                videoPlayer.src = "";
-                connectionStatus.textContent = `Завантаження файлу: 0%`;
-            } else if (msg.type === 'file_chunk') {
-                incomingBase64Chunks.push(msg.data);
-                const b64 = msg.data.includes(',') ? msg.data.split(',')[1] : msg.data;
-                receivedBytes += atob(b64).length;
+            } else {
+                incomingChunks.push(rawdata);
+                receivedBytes += rawdata.byteLength;
 
                 const percent = Math.min(100, Math.round((receivedBytes / incomingFileMeta.size) * 100));
                 connectionStatus.textContent = `Завантаження файлу: ${percent}%`;
 
                 if (receivedBytes >= incomingFileMeta.size) {
-                    const byteArrays = incomingBase64Chunks.map(chunk => {
-                        const base64Str = chunk.includes(',') ? chunk.split(',')[1] : chunk;
-                        const binary = atob(base64Str);
-                        const bytes = new Uint8Array(binary.length);
-                        for (let i = 0; i < binary.length; i++) {
-                            bytes[i] = binary.charCodeAt(i);
-                        }
-                        return bytes;
-                    });
-                    const blob = new Blob(byteArrays, { type: incomingFileMeta.mime });
+                    const blob = new Blob(incomingChunks, { type: incomingFileMeta.mime });
                     if (localVideoBlobUrl) URL.revokeObjectURL(localVideoBlobUrl);
                     localVideoBlobUrl = URL.createObjectURL(blob);
                     videoPlayer.src = localVideoBlobUrl;
@@ -523,41 +544,13 @@ function setupConnection() {
                         enterPlayerMode(false);
                     }, 500);
                 }
-            } else if (msg.type === 'client_file_ready' && isHost) {
-                connectionStatus.textContent = 'Статус: Обидва пристрої готові!';
-                setTimeout(() => {
-                    videoPlayer.currentTime = 0;
-                    videoPlayer.play().catch(e => {});
-                    playPauseBtn.textContent = '❚❚ Пауза';
-                    if (conn && conn.open) {
-                        conn.send(JSON.stringify({ type: 'play', time: 0 }));
-                    }
-                    enterPlayerMode(true);
-                }, 600);
-            } else if (msg.type === 'screen_info') {
-                partnerWidth = msg.width;
-                updateVideoStyle();
-            } else if (msg.type === 'play') { 
-                if (msg.time !== undefined) videoPlayer.currentTime = msg.time;
-                videoPlayer.play().catch(e=>{}); 
-                playPauseBtn.textContent = '❚❚ Пауза';
-                if (playerScreen.style.display !== 'block') enterPlayerMode(true);
-            } else if (msg.type === 'pause') { 
-                videoPlayer.pause(); 
-                playPauseBtn.textContent = '▶ Грати';
-            } else if (msg.type === 'seek') { 
-                videoPlayer.currentTime = msg.time; 
-            } else if (msg.type === 'sync_time') {
-                if (!isHost && !isSeeking && Math.abs(videoPlayer.currentTime - msg.time) > 0.2) {
-                    videoPlayer.currentTime = msg.time;
-                }
             }
         } catch(e){}
     });
 }
 
-function sendFileToClientBase64(file) {
-    const CHUNK_SIZE = 16384;
+function sendFileToClientBinary(file) {
+    const CHUNK_SIZE = 64 * 1024;
     let offset = 0;
 
     conn.send(JSON.stringify({
@@ -573,22 +566,19 @@ function sendFileToClientBase64(file) {
         const reader = new FileReader();
         reader.onload = function(e) {
             if (!conn || !conn.open) return;
-            conn.send(JSON.stringify({
-                type: 'file_chunk',
-                data: e.target.result
-            }));
+            conn.send(e.target.result);
             offset += slice.size;
             
             const percent = Math.round((offset / file.size) * 100);
             connectionStatus.textContent = `Відправка файлу: ${percent}%`;
 
             if (offset < file.size) {
-                setTimeout(readNextChunk, 5);
+                setTimeout(readNextChunk, 1);
             } else {
                 connectionStatus.textContent = 'Статус: Файл передано! Очікування клієнта...';
             }
         };
-        reader.readAsDataURL(slice);
+        reader.readAsArrayBuffer(slice);
     }
 
     setTimeout(readNextChunk, 200);
