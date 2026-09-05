@@ -294,7 +294,7 @@ let localVideoBlobUrl = null;
 let selectedFileObject = null;
 
 let incomingFileMeta = null;
-let incomingArrayBuffers = [];
+let incomingBase64Chunks = [];
 let receivedBytes = 0;
 
 let videoOffsetX = 0;
@@ -305,7 +305,6 @@ let partnerWidth = 0;
 let isSeeking = false;
 let wakeLock = null;
 
-// Функція запобігання засинанню екрана
 async function requestWakeLock() {
     try {
         if ('wakeLock' in navigator) {
@@ -434,50 +433,54 @@ function startPeer(myId, connectId) {
 
 function setupConnection() {
     conn.on('open', () => {
-        connectionStatus.textContent = 'Статус: З\'єднано!';
+        connectionStatus.textContent = 'Статус: З\'єднано! Підготовка до передачі...';
         
         if (isHost) {
-            conn.send({ type: 'sync_mode', mode: currentMode });
+            conn.send(JSON.stringify({ type: 'sync_mode', mode: currentMode }));
             if (currentMode === 'p2p' && selectedFileObject) {
-                sendFileBinary(selectedFileObject);
+                sendFileToClientBase64(selectedFileObject);
             }
         }
     });
 
-    conn.on('data', (data) => {
+    conn.on('data', (rawdata) => {
         try {
-            // Перевіряємо чи це бінарний чанк файлу (ArrayBuffer)
-            if (data instanceof ArrayBuffer) {
-                incomingArrayBuffers.push(data);
-                receivedBytes += data.byteLength;
+            const msg = typeof rawdata === 'string' ? JSON.parse(rawdata) : rawdata;
+            
+            if (msg.type === 'file_meta') {
+                incomingFileMeta = msg;
+                incomingBase64Chunks = [];
+                receivedBytes = 0;
+                connectionStatus.textContent = `Завантаження файлу: 0%`;
+            } else if (msg.type === 'file_chunk') {
+                incomingBase64Chunks.push(msg.data);
+                const b64 = msg.data.includes(',') ? msg.data.split(',')[1] : msg.data;
+                receivedBytes += atob(b64).length;
 
-                if (incomingFileMeta && incomingFileMeta.size > 0) {
-                    const percent = Math.min(100, Math.round((receivedBytes / incomingFileMeta.size) * 100));
-                    connectionStatus.textContent = `Завантаження файлу: ${percent}%`;
-                }
+                const percent = Math.min(100, Math.round((receivedBytes / incomingFileMeta.size) * 100));
+                connectionStatus.textContent = `Завантаження файлу: ${percent}%`;
+                currentTimeText.textContent = `${percent}%`;
 
-                if (incomingFileMeta && receivedBytes >= incomingFileMeta.size) {
-                    const blob = new Blob(incomingArrayBuffers, { type: incomingFileMeta.mime });
+                if (receivedBytes >= incomingFileMeta.size) {
+                    const byteArrays = incomingBase64Chunks.map(chunk => {
+                        const base64Str = chunk.includes(',') ? chunk.split(',')[1] : chunk;
+                        const binary = atob(base64Str);
+                        const bytes = new Uint8Array(binary.length);
+                        for (let i = 0; i < binary.length; i++) {
+                            bytes[i] = binary.charCodeAt(i);
+                        }
+                        return bytes;
+                    });
+                    const blob = new Blob(byteArrays, { type: incomingFileMeta.mime });
                     localVideoBlobUrl = URL.createObjectURL(blob);
                     videoPlayer.src = localVideoBlobUrl;
                     videoPlayer.load();
-                    connectionStatus.textContent = 'Статус: Файл повністю завантажено! Готово до запуску.';
+                    connectionStatus.textContent = 'Статус: Файл повністю завантажено! Запуск...';
                     
-                    // Даємо коротеньку паузу перед відкриттям плеєра, щоб браузер зафіксував готовність
                     setTimeout(() => {
                         enterPlayerMode();
-                    }, 600);
+                    }, 800);
                 }
-                return;
-            }
-
-            // Звичайні керуючі повідомлення (об'єкти JSON)
-            const msg = data;
-            if (msg.type === 'file_meta') {
-                incomingFileMeta = msg;
-                incomingArrayBuffers = [];
-                receivedBytes = 0;
-                connectionStatus.textContent = `Початок завантаження файлу: 0%`;
             } else if (msg.type === 'screen_info') {
                 partnerWidth = msg.width;
                 updateVideoStyle();
@@ -499,24 +502,26 @@ function setupConnection() {
     });
 }
 
-// Швидка передача файлу через бінарні чанки (ArrayBuffer)
-function sendFileBinary(file) {
-    const CHUNK_SIZE = 65536; // 64KB чанки для високої швидкості та стабільності
+function sendFileToClientBase64(file) {
+    const CHUNK_SIZE = 32768; // 32KB чанки для ідеальної стабільності через JSON
     let offset = 0;
 
-    conn.send({
+    conn.send(JSON.stringify({
         type: 'file_meta',
         name: file.name,
         size: file.size,
         mime: file.type
-    });
+    }));
 
     function readNextChunk() {
         const slice = file.slice(offset, offset + CHUNK_SIZE);
         const reader = new FileReader();
         reader.onload = function(e) {
             if (!conn || !conn.open) return;
-            conn.send(e.target.result); // Надсилаємо чистий ArrayBuffer
+            conn.send(JSON.stringify({
+                type: 'file_chunk',
+                data: e.target.result
+            }));
             offset += slice.size;
             
             const percent = Math.round((offset / file.size) * 100);
@@ -525,13 +530,13 @@ function sendFileBinary(file) {
             if (offset < file.size) {
                 readNextChunk();
             } else {
-                connectionStatus.textContent = 'Статус: Файл повністю передано! Запуск плеєра...';
+                connectionStatus.textContent = 'Статус: Файл передано! Очікування запуску...';
                 setTimeout(() => {
                     enterPlayerMode();
-                }, 800);
+                }, 1000);
             }
         };
-        reader.readAsArrayBuffer(slice);
+        reader.readAsDataURL(slice);
     }
 
     readNextChunk();
@@ -554,15 +559,15 @@ function enterPlayerMode() {
     });
 
     if (conn && conn.open) {
-        conn.send({ type: 'screen_info', width: window.innerWidth });
-        conn.send({ type: 'sync_time', time: videoPlayer.currentTime });
+        conn.send(JSON.stringify({ type: 'screen_info', width: window.innerWidth }));
+        conn.send(JSON.stringify({ type: 'sync_time', time: videoPlayer.currentTime }));
     }
 
     if (isHost) {
         if (syncInterval) clearInterval(syncInterval);
         syncInterval = setInterval(() => {
             if (conn && conn.open && !videoPlayer.paused) {
-                conn.send({ type: 'sync_time', time: videoPlayer.currentTime });
+                conn.send(JSON.stringify({ type: 'sync_time', time: videoPlayer.currentTime }));
             }
         }, 500);
     }
@@ -601,11 +606,11 @@ playPauseBtn.addEventListener('click', () => {
     if (videoPlayer.paused) {
         videoPlayer.play().catch(e=>{});
         playPauseBtn.textContent = '❚❚ Пауза';
-        if (conn && conn.open) conn.send({ type: 'play', time: videoPlayer.currentTime });
+        if (conn && conn.open) conn.send(JSON.stringify({ type: 'play', time: videoPlayer.currentTime }));
     } else {
         videoPlayer.pause();
         playPauseBtn.textContent = '▶ Грати';
-        if (conn && conn.open) conn.send({ type: 'pause' });
+        if (conn && conn.open) conn.send(JSON.stringify({ type: 'pause' }));
     }
 });
 
@@ -613,18 +618,18 @@ playerScreen.addEventListener('click', () => {
     if (videoPlayer.paused) {
         videoPlayer.play().catch(e=>{});
         playPauseBtn.textContent = '❚❚ Пауза';
-        if (conn && conn.open) conn.send({ type: 'play', time: videoPlayer.currentTime });
+        if (conn && conn.open) conn.send(JSON.stringify({ type: 'play', time: videoPlayer.currentTime }));
     }
 });
 
 restartBtn.addEventListener('click', () => {
     videoPlayer.currentTime = 0;
     videoPlayer.play().catch(e=>{});
-    if (conn && conn.open) conn.send({ type: 'seek', time: 0 });
+    if (conn && conn.open) conn.send(JSON.stringify({ type: 'seek', time: 0 }));
 });
 
 syncTimeBtn.addEventListener('click', () => {
-    if (conn && conn.open) conn.send({ type: 'seek', time: videoPlayer.currentTime });
+    if (conn && conn.open) conn.send(JSON.stringify({ type: 'seek', time: videoPlayer.currentTime }));
 });
 
 fullscreenBtn.addEventListener('click', () => {
@@ -640,7 +645,7 @@ videoSeek.addEventListener('input', () => {
 
 videoSeek.addEventListener('change', () => {
     isSeeking = false;
-    if (conn && conn.open) conn.send({ type: 'seek', time: videoPlayer.currentTime });
+    if (conn && conn.open) conn.send(JSON.stringify({ type: 'seek', time: videoPlayer.currentTime }));
 });
 
 document.getElementById('shiftUpBtn').addEventListener('click', () => { videoOffsetY -= 5; updateVideoStyle(); });
