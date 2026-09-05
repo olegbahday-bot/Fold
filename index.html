@@ -80,6 +80,7 @@ button:hover { background: #45a049; }
     overflow: hidden;
     display: none;
     z-index: 100;
+    touch-action: none; /* Забороняє браузеру перехоплювати жести скролу */
 }
 video.vid-el {
     position: absolute;
@@ -129,6 +130,7 @@ video.vid-el {
     overflow-y: auto;
     box-sizing: border-box;
     box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+    touch-action: auto; /* Дозволяє скролити саму панель керування */
 }
 .controls-grid {
     display: grid;
