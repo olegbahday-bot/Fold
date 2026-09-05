@@ -291,11 +291,10 @@ const videoSeek = document.getElementById('videoSeek');
 let currentMode = 'p2p';
 let peer = null;
 let conn = null;
-let isHost = false;
+let isHost = (roleSelect.value === 'host'); // Виправлено: ініціалізація за замовчуванням згідно з select
 let localVideoBlobUrl = null;
 let selectedFileObject = null;
 
-// Змінні для збирання файлу на клієнті через Base64
 let incomingFileMeta = null;
 let incomingBase64Chunks = [];
 let receivedBytes = 0;
@@ -339,7 +338,7 @@ roleSelect.addEventListener('change', () => {
     positionSelect.value = isHost ? 'left' : 'right';
     hostSection.classList.toggle('hidden', !isHost);
     clientSection.classList.toggle('hidden', isHost);
-    videoPickerContainer.classList.toggle('hidden', !isHost && currentMode === 'p2p');
+    updateUIState();
 });
 
 modeButtons.forEach(btn => {
@@ -478,7 +477,6 @@ function setupConnection() {
             } else if (msg.type === 'seek') { 
                 videoPlayer.currentTime = msg.time; 
             } else if (msg.type === 'sync_time') {
-                // Суворий поріг розсинхронізації: більше 0.3 секунди — підтягуємо час
                 if (!isHost && !isSeeking && Math.abs(videoPlayer.currentTime - msg.time) > 0.3) {
                     videoPlayer.currentTime = msg.time;
                 }
@@ -487,9 +485,8 @@ function setupConnection() {
     });
 }
 
-// Надійна передача файлу через Base64 чанки без зависання на 0%
 function sendFileToClientBase64(file) {
-    const CHUNK_SIZE = 32768; // 32KB
+    const CHUNK_SIZE = 32768;
     let offset = 0;
 
     conn.send(JSON.stringify({
@@ -538,7 +535,6 @@ function enterPlayerMode() {
 
     updateVideoStyle();
     
-    // Клієнт при вході в режим плеєра одразу бере поточний час хоста, якщо той уже грає
     videoPlayer.play().then(() => {
         playPauseBtn.textContent = '❚❚ Пауза';
     }).catch(e => {
@@ -547,13 +543,11 @@ function enterPlayerMode() {
 
     if (conn && conn.open) {
         conn.send(JSON.stringify({ type: 'screen_info', width: window.innerWidth }));
-        // Надсилаємо поточний час при старті плеєра для ідеального зчеплення
         conn.send(JSON.stringify({ type: 'sync_time', time: videoPlayer.currentTime }));
     }
 
     if (isHost) {
         if (syncInterval) clearInterval(syncInterval);
-        // Частіша перевірка синхронізації — кожні 500 мс
         syncInterval = setInterval(() => {
             if (conn && conn.open && !videoPlayer.paused) {
                 conn.send(JSON.stringify({ type: 'sync_time', time: videoPlayer.currentTime }));
@@ -595,7 +589,6 @@ playPauseBtn.addEventListener('click', () => {
     if (videoPlayer.paused) {
         videoPlayer.play().catch(e=>{});
         playPauseBtn.textContent = '❚❚ Пауза';
-        // Передаємо також поточний час при натисканні Play
         if (conn && conn.open) conn.send(JSON.stringify({ type: 'play', time: videoPlayer.currentTime }));
     } else {
         videoPlayer.pause();
