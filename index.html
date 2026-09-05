@@ -88,6 +88,8 @@ video.vid-el {
     left: 0;
     object-fit: fill;
     pointer-events: none;
+    /* Компенсація блідості та втрати кольору при стрімі */
+    filter: contrast(1.12) saturate(1.18);
 }
 
 /* Індикатор гучності */
@@ -313,6 +315,7 @@ const durationText = document.getElementById('durationText');
 let peer = null;
 let conn = null;
 let localStream = null;
+let currentCall = null;
 let isHost = false;
 let localVideoBlobUrl = null;
 
@@ -422,7 +425,6 @@ changeVideoBtn.addEventListener('click', () => {
     newVideoInput.click();
 });
 
-// ВИПРАВЛЕННЯ ДЛЯ ЗМІНИ ВІДЕО НА ЛЬОТУ В РЕЖИМІ СТРІМУ
 newVideoInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -430,21 +432,29 @@ newVideoInput.addEventListener('change', (e) => {
         videoPlayer.src = localVideoBlobUrl;
         videoPlayer.load();
         updateVideoStyle();
-        videoPlayer.currentTime = 0;
-        videoPlayer.pause();
-        playPauseBtn.textContent = '▶ Грати';
 
         const mode = modeSelect.value;
-        if (mode === 'stream' && isHost && conn && conn.open) {
-            if (videoPlayer.captureStream) {
-                localStream = videoPlayer.captureStream();
-                peer.call(conn.peer, localStream);
-            } else if (videoPlayer.mozCaptureStream) {
-                localStream = videoPlayer.mozCaptureStream();
-                peer.call(conn.peer, localStream);
+        
+        videoPlayer.play().then(() => {
+            playPauseBtn.textContent = '❚❚ Пауза';
+            videoPlayer.currentTime = 0;
+
+            if (mode === 'stream' && isHost && conn && conn.open) {
+                if (currentCall) {
+                    currentCall.close();
+                }
+                if (videoPlayer.captureStream) {
+                    localStream = videoPlayer.captureStream();
+                    currentCall = peer.call(conn.peer, localStream);
+                } else if (videoPlayer.mozCaptureStream) {
+                    localStream = videoPlayer.mozCaptureStream();
+                    currentCall = peer.call(conn.peer, localStream);
+                }
+                conn.send(JSON.stringify({ type: 'restart' }));
             }
-            conn.send(JSON.stringify({ type: 'restart' }));
-        }
+        }).catch(err => {
+            console.log("Помилка автоплею при зміні відео:", err);
+        });
     }
 });
 
@@ -515,10 +525,12 @@ connectClientBtn.addEventListener('click', () => {
         if (mode === 'stream') {
             peer.on('call', (call) => {
                 call.answer();
+                currentCall = call;
                 call.on('stream', (remoteStream) => {
                     videoPlayer.muted = true;
                     videoPlayer.srcObject = remoteStream;
                     videoPlayer.play().catch(e => {});
+                    playPauseBtn.textContent = '❚❚ Пауза';
                 });
             });
         }
@@ -561,10 +573,10 @@ function setupConnection() {
             if (mode === 'stream' && isHost) {
                 if (videoPlayer.captureStream) {
                     localStream = videoPlayer.captureStream();
-                    peer.call(conn.peer, localStream);
+                    currentCall = peer.call(conn.peer, localStream);
                 } else if (videoPlayer.mozCaptureStream) {
                     localStream = videoPlayer.mozCaptureStream();
-                    peer.call(conn.peer, localStream);
+                    currentCall = peer.call(conn.peer, localStream);
                 }
             }
 
