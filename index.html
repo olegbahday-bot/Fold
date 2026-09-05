@@ -130,6 +130,13 @@ video.vid-el {
     max-width: 360px;
     box-sizing: border-box;
     box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+    pointer-events: auto;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.controls.fade-out {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-50%) translateY(20px);
 }
 .controls-grid {
     display: grid;
@@ -260,6 +267,7 @@ input[type="range"].video-seek {
 <script>
 const setupCard = document.getElementById('setupCard');
 const playerScreen = document.getElementById('playerScreen');
+const playerControls = document.getElementById('playerControls');
 const videoPlayer = document.getElementById('videoPlayer');
 
 const modeButtons = document.querySelectorAll('.mode-btn');
@@ -488,14 +496,12 @@ function setupConnection() {
                     videoPlayer.load();
                     connectionStatus.textContent = 'Статус: Файл повністю завантажено! Готовність до синхронізації...';
                     
-                    // Повідомляємо хосту, що клієнт повністю завантажив файл і готовий стартувати
                     setTimeout(() => {
                         conn.send(JSON.stringify({ type: 'client_file_ready' }));
-                        enterPlayerMode(false); // Заходимо в плеєр на паузі/очікуванні старту
+                        enterPlayerMode(false);
                     }, 500);
                 }
             } else if (msg.type === 'client_file_ready' && isHost) {
-                // Хост отримав підтвердження, що клієнт завантажив файл — запускаємо синхронно з 0
                 connectionStatus.textContent = 'Статус: Обидва пристрої готові! Синхронний старт...';
                 setTimeout(() => {
                     videoPlayer.currentTime = 0;
@@ -627,6 +633,16 @@ function updateVideoStyle() {
     videoPlayer.style.top = videoOffsetY + 'px';
 }
 
+// Запобігаємо спливанню кліків з панелі керування, щоб кнопки працювали чітко
+playerControls.addEventListener('click', (e) => {
+    e.stopPropagation();
+});
+
+// Натискання на екран (окрім кнопок) — ховає/показує панель керування
+playerScreen.addEventListener('click', () => {
+    playerControls.classList.toggle('fade-out');
+});
+
 playPauseBtn.addEventListener('click', () => {
     if (videoPlayer.paused) {
         videoPlayer.play().catch(e=>{});
@@ -639,17 +655,10 @@ playPauseBtn.addEventListener('click', () => {
     }
 });
 
-playerScreen.addEventListener('click', () => {
-    if (videoPlayer.paused) {
-        videoPlayer.play().catch(e=>{});
-        playPauseBtn.textContent = '❚❚ Пауза';
-        if (conn && conn.open) conn.send(JSON.stringify({ type: 'play', time: videoPlayer.currentTime }));
-    }
-});
-
 restartBtn.addEventListener('click', () => {
     videoPlayer.currentTime = 0;
     videoPlayer.play().catch(e=>{});
+    playPauseBtn.textContent = '❚❚ Пауза';
     if (conn && conn.open) conn.send(JSON.stringify({ type: 'seek', time: 0 }));
 });
 
