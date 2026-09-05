@@ -88,8 +88,8 @@ video.vid-el {
     left: 0;
     object-fit: fill;
     pointer-events: none;
-    /* Компенсація блідості та втрати кольору при стрімі */
-    filter: contrast(1.12) saturate(1.18);
+    /* М'якіша компенсація блідості при стрімі */
+    filter: contrast(1.05) saturate(1.10);
 }
 
 /* Індикатор гучності */
@@ -429,6 +429,7 @@ newVideoInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file) {
         localVideoBlobUrl = URL.createObjectURL(file);
+        videoPlayer.srcObject = null; // очищаємо старий стрім якщо був
         videoPlayer.src = localVideoBlobUrl;
         videoPlayer.load();
         updateVideoStyle();
@@ -527,8 +528,9 @@ connectClientBtn.addEventListener('click', () => {
                 call.answer();
                 currentCall = call;
                 call.on('stream', (remoteStream) => {
-                    videoPlayer.muted = true;
+                    videoPlayer.src = ""; // прибираємо локальний src, якщо був
                     videoPlayer.srcObject = remoteStream;
+                    videoPlayer.muted = true;
                     videoPlayer.play().catch(e => {});
                     playPauseBtn.textContent = '❚❚ Пауза';
                 });
@@ -564,10 +566,6 @@ function setupConnection() {
             playerScreen.style.display = 'block';
             updateVideoStyle();
 
-            videoPlayer.currentTime = 0;
-            videoPlayer.play().catch(err => {});
-            playPauseBtn.textContent = '❚❚ Пауза';
-
             const mode = modeSelect.value;
 
             if (mode === 'stream' && isHost) {
@@ -579,6 +577,12 @@ function setupConnection() {
                     currentCall = peer.call(conn.peer, localStream);
                 }
             }
+
+            if (!videoPlayer.srcObject) {
+                videoPlayer.currentTime = 0;
+            }
+            videoPlayer.play().catch(err => {});
+            playPauseBtn.textContent = '❚❚ Пауза';
 
             if (isHost) {
                 if (syncInterval) clearInterval(syncInterval);
@@ -618,15 +622,20 @@ function setupConnection() {
                 playPauseBtn.textContent = '▶ Грати';
             } else if (msg.type === 'restart') {
                 videoPlayer.playbackRate = 1.0;
-                videoPlayer.currentTime = 0;
+                // У режимі стріму currentTime не можна ставити на srcObject, керується потоком
+                if (!videoPlayer.srcObject) {
+                    videoPlayer.currentTime = 0;
+                }
                 videoPlayer.play().catch(e => {});
                 playPauseBtn.textContent = '❚❚ Пауза';
             } else if (msg.type === 'seek') {
                 videoPlayer.playbackRate = 1.0;
-                videoPlayer.currentTime = msg.time;
-                videoSeek.value = msg.time;
-                currentTimeText.textContent = formatTime(msg.time);
-            } else if (msg.type === 'sync_time' && !isHost && !isSeeking) {
+                if (!videoPlayer.srcObject) {
+                    videoPlayer.currentTime = msg.time;
+                    videoSeek.value = msg.time;
+                    currentTimeText.textContent = formatTime(msg.time);
+                }
+            } else if (msg.type === 'sync_time' && !isHost && !isSeeking && !videoPlayer.srcObject) {
                 if (!videoPlayer.paused) {
                     const diff = videoPlayer.currentTime - msg.time;
                     if (Math.abs(diff) > 1.0) {
@@ -664,7 +673,7 @@ videoPlayer.addEventListener('loadedmetadata', () => {
 });
 
 videoPlayer.addEventListener('timeupdate', () => {
-    if (!isSeeking) {
+    if (!isSeeking && !videoPlayer.srcObject) {
         videoSeek.value = videoPlayer.currentTime;
         currentTimeText.textContent = formatTime(videoPlayer.currentTime);
     }
@@ -802,7 +811,9 @@ syncTimeBtn.addEventListener('click', () => {
 
 restartBtn.addEventListener('click', () => {
     videoPlayer.playbackRate = 1.0;
-    videoPlayer.currentTime = 0;
+    if (!videoPlayer.srcObject) {
+        videoPlayer.currentTime = 0;
+    }
     videoPlayer.play().catch(e => {});
     playPauseBtn.textContent = '❚❚ Пауза';
     if (conn && conn.open) conn.send(JSON.stringify({ type: 'restart' }));
