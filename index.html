@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ScreenParty P2P Ultimate</title>
+<title>ScreenParty P2P All Modes</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
 <style>
 body {
@@ -77,6 +77,7 @@ button:hover { background: #45a049; }
     border-radius: 8px;
     margin: 0;
     font-weight: normal;
+    cursor: pointer;
 }
 .mode-btn.active {
     background: #1b5e20;
@@ -84,7 +85,6 @@ button:hover { background: #45a049; }
     color: #fff;
     font-weight: bold;
 }
-.mode-btn.locked { opacity: 0.7; cursor: default; }
 
 .code-display {
     background: #fff;
@@ -155,7 +155,6 @@ video.vid-el {
 .scale-btn { background-color: #E91E63; }
 .fullscreen-btn { background-color: #FF9800; }
 .save-btn { background-color: #FF5722; }
-.file-btn { background-color: #607D8B; }
 .sync-btn { background-color: #9C27B0; }
 
 .timeline-container { width: 100%; margin-bottom: 4px; box-sizing: border-box; }
@@ -184,10 +183,10 @@ input[type="range"].video-seek {
     <h2>ScreenParty P2P</h2>
 
     <label style="color: #4CAF50; font-weight: bold;">Режим роботи:</label>
-    <div class="mode-group" id="modeGroup">
-        <button type="button" class="mode-btn" data-mode="stream">1. Стрімінг (Трансляція)</button>
-        <button type="button" class="mode-btn" data-mode="local">2. Два локальних файли</button>
-        <button type="button" class="mode-btn active" data-mode="p2p">3. P2P передача файлу частинами</button>
+    <div class="mode-group">
+        <button type="button" class="mode-btn" data-mode="1">1. Стрімінг (Трансляція)</button>
+        <button type="button" class="mode-btn" data-mode="2">2. Два локальних файли</button>
+        <button type="button" class="mode-btn active" data-mode="3">3. P2P передача файлу частинами</button>
     </div>
 
     <label style="margin-top: 12px;">Роль пристрою:</label>
@@ -221,7 +220,7 @@ input[type="range"].video-seek {
         <button id="connectClientBtn">Підключитися</button>
     </div>
 
-    <div class="status" id="connectionStatus">Статус: Готово. Виберіть файл на головному телефоні.</div>
+    <div class="status" id="connectionStatus">Статус: Виберіть режим та файл.</div>
 </div>
 
 <div id="playerScreen">
@@ -268,7 +267,6 @@ const roleSelect = document.getElementById('roleSelect');
 const positionSelect = document.getElementById('positionSelect');
 const videoInput = document.getElementById('videoInput');
 const videoPickerContainer = document.getElementById('videoPickerContainer');
-const videoLabel = document.getElementById('videoLabel');
 const hostSection = document.getElementById('hostSection');
 const clientSection = document.getElementById('clientSection');
 const connectionStatus = document.getElementById('connectionStatus');
@@ -288,14 +286,13 @@ const currentTimeText = document.getElementById('currentTimeText');
 const durationText = document.getElementById('durationText');
 const videoSeek = document.getElementById('videoSeek');
 
-let currentMode = 'p2p';
+let currentMode = 3;
 let peer = null;
 let conn = null;
 let isHost = false;
 let localVideoBlobUrl = null;
 let selectedFileObject = null;
 
-// Змінні для збирання файлу на клієнті
 let incomingFileMeta = null;
 let incomingChunks = [];
 let receivedBytes = 0;
@@ -334,35 +331,32 @@ const peerConfig = {
     secure: true
 };
 
+modeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+        modeButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentMode = parseInt(btn.getAttribute('data-mode'));
+        
+        if (currentMode === 1) {
+            videoPickerContainer.style.display = isHost ? 'block' : 'none';
+        } else {
+            videoPickerContainer.style.display = 'block';
+        }
+    });
+});
+
 roleSelect.addEventListener('change', () => {
     isHost = (roleSelect.value === 'host');
     positionSelect.value = isHost ? 'left' : 'right';
     hostSection.classList.toggle('hidden', !isHost);
     clientSection.classList.toggle('hidden', isHost);
-    videoPickerContainer.classList.toggle('hidden', !isHost && currentMode === 'p2p');
-});
-
-modeButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-        modeButtons.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentMode = btn.getAttribute('data-mode');
-        updateUIState();
-    });
-});
-
-function updateUIState() {
-    if (currentMode === 'p2p') {
-        videoPickerContainer.classList.toggle('hidden', !isHost);
-        videoLabel.textContent = 'Виберіть відеофайл (.mp4) для відправки:';
-    } else if (currentMode === 'local') {
-        videoPickerContainer.classList.remove('hidden');
-        videoLabel.textContent = 'Виберіть локальний файл (.mp4):';
+    
+    if (currentMode === 1 && !isHost) {
+        videoPickerContainer.style.display = 'none';
     } else {
-        videoPickerContainer.classList.toggle('hidden', !isHost);
+        videoPickerContainer.style.display = 'block';
     }
-}
-updateUIState();
+});
 
 videoInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
@@ -370,12 +364,13 @@ videoInput.addEventListener('change', (e) => {
         selectedFileObject = file;
         localVideoBlobUrl = URL.createObjectURL(file);
         videoPlayer.src = localVideoBlobUrl;
-        connectionStatus.textContent = 'Статус: Файл завантажено на головному телефоні';
+        connectionStatus.textContent = 'Статус: Файл вибрано, готово до створення кімнати';
     }
 });
 
 startHostBtn.addEventListener('click', () => {
-    if (currentMode === 'p2p' && !selectedFileObject) { alert('Виберіть відеофайл спочатку!'); return; }
+    if (currentMode !== 1 && !selectedFileObject) { alert('Виберіть відеофайл спочатку!'); return; }
+    if (currentMode === 1 && isHost && !selectedFileObject) { alert('Виберіть відеофайл для стрімінг-трансляції!'); return; }
     isHost = true;
     startPeer('sp-' + Math.floor(10000 + Math.random() * 90000));
 });
@@ -383,6 +378,7 @@ startHostBtn.addEventListener('click', () => {
 connectClientBtn.addEventListener('click', () => {
     const code = clientCodeInput.value.trim();
     if (code.length !== 5) { alert('Введіть 5-значний код!'); return; }
+    if (currentMode === 2 && !selectedFileObject) { alert('У Режимі 2 виберіть такий самий файл локально на цьому телефоні!'); return; }
     isHost = false;
     startPeer(null, 'sp-' + code);
 });
@@ -396,9 +392,9 @@ function startPeer(myId, connectId) {
             if (isHost) {
                 hostCodeDisplay.textContent = id.replace('sp-', '');
                 codeContainer.classList.remove('hidden');
-                connectionStatus.textContent = 'Статус: Очікування підключення другого телефону...';
+                connectionStatus.textContent = 'Статус: Очікування підключення клієнта...';
             } else {
-                connectionStatus.textContent = 'Статус: З\'єднання з кімнатою...';
+                connectionStatus.textContent = 'Статус: З\'єднання з хостом...';
                 conn = peer.connect(connectId);
                 setupConnection();
             }
@@ -419,37 +415,41 @@ function startPeer(myId, connectId) {
 
 function setupConnection() {
     conn.on('open', () => {
-        connectionStatus.textContent = 'Статус: З\'єднано! Передача даних активна.';
-        
+        connectionStatus.textContent = 'Статус: З\'єднано!';
         if (isHost) {
-            conn.send(JSON.stringify({ type: 'sync_mode', mode: currentMode }));
-            if (currentMode === 'p2p' && selectedFileObject) {
+            if (currentMode === 3 && selectedFileObject) {
                 sendFileToClient(selectedFileObject);
+            } else if (currentMode === 2) {
+                setTimeout(enterPlayerMode, 500);
+            } else if (currentMode === 1) {
+                // Mode 1 streaming logic stub
+                setTimeout(enterPlayerMode, 500);
+            }
+        } else {
+            if (currentMode === 2) {
+                setTimeout(enterPlayerMode, 500);
+            } else if (currentMode === 1) {
+                setTimeout(enterPlayerMode, 500);
             }
         }
     });
 
     conn.on('data', (data) => {
         try {
-            // Обробка бінарних чанків файлу в режимі P2P
-            if (data instanceof ArrayBuffer) {
+            if (currentMode === 3 && data instanceof ArrayBuffer) {
                 if (incomingFileMeta) {
                     incomingChunks.push(data);
                     receivedBytes += data.byteLength;
                     const percent = Math.round((receivedBytes / incomingFileMeta.size) * 100);
                     connectionStatus.textContent = `Отримання файлу: ${percent}%`;
-                    currentTimeText.textContent = `${percent}%`;
 
                     if (receivedBytes >= incomingFileMeta.size) {
                         const blob = new Blob(incomingChunks, { type: incomingFileMeta.mime });
                         localVideoBlobUrl = URL.createObjectURL(blob);
                         videoPlayer.src = localVideoBlobUrl;
                         videoPlayer.load();
-                        connectionStatus.textContent = 'Статус: Файл успішно отримано і зібрано!';
-                        
-                        setTimeout(() => {
-                            enterPlayerMode();
-                        }, 800);
+                        connectionStatus.textContent = 'Статус: Файл отримано! Запуск плеєра...';
+                        setTimeout(enterPlayerMode, 800);
                     }
                 }
                 return;
@@ -460,6 +460,7 @@ function setupConnection() {
                 incomingFileMeta = msg;
                 incomingChunks = [];
                 receivedBytes = 0;
+                connectionStatus.textContent = `Початок завантаження файлу: ${msg.name}`;
             } else if (msg.type === 'screen_info') {
                 partnerWidth = msg.width;
                 updateVideoStyle();
@@ -480,9 +481,8 @@ function setupConnection() {
     });
 }
 
-// Функція передачі файлу частинами (робить P2P можливим для браузера)
 function sendFileToClient(file) {
-    const CHUNK_SIZE = 16384; // 16KB пакет
+    const CHUNK_SIZE = 8192;
     const reader = new FileReader();
     let offset = 0;
 
@@ -499,15 +499,13 @@ function sendFileToClient(file) {
             offset += e.target.result.byteLength;
             
             const percent = Math.round((offset / file.size) * 100);
-            connectionStatus.textContent = `Відправка файлу на клієнт: ${percent}%`;
+            connectionStatus.textContent = `Відправка файлу: ${percent}%`;
 
             if (offset < file.size) {
-                readNextChunk();
+                setTimeout(readNextChunk, 4);
             } else {
                 connectionStatus.textContent = 'Статус: Файл передано! Запуск плеєра...';
-                setTimeout(() => {
-                    enterPlayerMode();
-                }, 1000);
+                setTimeout(enterPlayerMode, 1000);
             }
         }
     };
