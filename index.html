@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ScreenParty Sync</title>
+<title>ScreenParty Dual-Mode</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
 <style>
 body {
@@ -80,14 +80,14 @@ button:hover { background: #45a049; }
     overflow: hidden;
     display: none;
     z-index: 100;
-    touch-action: none; /* Забороняє браузеру перехоплювати жести скролу */
+    touch-action: none;
 }
 video.vid-el {
     position: absolute;
     top: 0;
     left: 0;
     object-fit: fill;
-    pointer-events: none; /* Пропускає дотики крізь відео на екран */
+    pointer-events: none;
 }
 
 /* Індикатор гучності */
@@ -111,7 +111,7 @@ video.vid-el {
     opacity: 0;
 }
 
-/* Панель керування з внутрішньою прокруткою */
+/* Панель керування */
 .controls {
     position: absolute;
     bottom: 8px;
@@ -130,7 +130,7 @@ video.vid-el {
     overflow-y: auto;
     box-sizing: border-box;
     box-shadow: 0 4px 20px rgba(0,0,0,0.8);
-    touch-action: auto; /* Дозволяє скролити саму панель керування */
+    touch-action: auto;
 }
 .controls-grid {
     display: grid;
@@ -194,6 +194,12 @@ input[type="range"].video-seek {
 <div class="card" id="setupCard">
     <h2>ScreenParty Sync</h2>
 
+    <label>Режим роботи відео:</label>
+    <select id="modeSelect">
+        <option value="stream">Трансляція з головного (1 файл)</option>
+        <option value="local">Локальні файли на обох (2 файли)</option>
+    </select>
+
     <label>Роль пристрою:</label>
     <select id="roleSelect">
         <option value="host">Головний (Host - S25+)</option>
@@ -206,8 +212,11 @@ input[type="range"].video-seek {
         <option value="right">Права частина (поруч справа)</option>
     </select>
 
-    <label>Виберіть відеофайл:</label>
-    <input type="file" id="videoInput" accept="video/*">
+    <!-- Вибір відеофайлу -->
+    <div id="videoPickerContainer">
+        <label id="videoLabel">Виберіть відеофайл:</label>
+        <input type="file" id="videoInput" accept="video/*">
+    </div>
 
     <div id="hostSection">
         <button id="startHostBtn">Створити кімнату та запустити</button>
@@ -236,7 +245,7 @@ input[type="range"].video-seek {
         <div style="font-size: 10px; text-align: center; color: #ddd; font-weight: bold; margin-bottom: 2px;">Керування та калібрування</div>
         
         <!-- Таймлайн / повзунок часу -->
-        <div class="timeline-container">
+        <div class="timeline-container" id="timelineContainer">
             <div class="time-labels">
                 <span id="currentTimeText">0:00</span>
                 <span id="durationText">0:00</span>
@@ -256,7 +265,6 @@ input[type="range"].video-seek {
             <button id="resetShiftBtn" class="reset-btn">Скидання</button>
             <button id="scaleMinusBtn" class="scale-btn">🔍 Зменшити (-)</button>
 
-            <!-- Блок стрілок та синхронізація -->
             <button id="shiftLeftBtn">◄ Ліворуч</button>
             <button id="shiftUpBtn">▲ Вгору</button>
             <button id="shiftRightBtn">Праворуч ►</button>
@@ -276,9 +284,12 @@ const playerControls = document.getElementById('playerControls');
 const volumeIndicator = document.getElementById('volumeIndicator');
 const newVideoInput = document.getElementById('newVideoInput');
 
+const modeSelect = document.getElementById('modeSelect');
 const roleSelect = document.getElementById('roleSelect');
 const positionSelect = document.getElementById('positionSelect');
 const videoInput = document.getElementById('videoInput');
+const videoPickerContainer = document.getElementById('videoPickerContainer');
+const videoLabel = document.getElementById('videoLabel');
 const hostSection = document.getElementById('hostSection');
 const clientSection = document.getElementById('clientSection');
 const connectionStatus = document.getElementById('connectionStatus');
@@ -293,6 +304,7 @@ const playPauseBtn = document.getElementById('playPauseBtn');
 const restartBtn = document.getElementById('restartBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
 const syncTimeBtn = document.getElementById('syncTimeBtn');
+const changeVideoBtn = document.getElementById('changeVideoBtn');
 
 const videoSeek = document.getElementById('videoSeek');
 const currentTimeText = document.getElementById('currentTimeText');
@@ -300,6 +312,7 @@ const durationText = document.getElementById('durationText');
 
 let peer = null;
 let conn = null;
+let localStream = null;
 let isHost = false;
 let localVideoBlobUrl = null;
 
@@ -312,7 +325,6 @@ let partnerWidth = 0;
 let partnerHeight = 0;
 let isSeeking = false;
 
-// Змінні для жесту гучності
 let touchStartY = 0;
 let touchStartX = 0;
 let initialVolume = 1.0;
@@ -368,15 +380,30 @@ function requestFullscreenNow() {
     }
 }
 
-roleSelect.addEventListener('change', () => {
-    if (roleSelect.value === 'host') {
+function updateUIState() {
+    const mode = modeSelect.value;
+    const role = roleSelect.value;
+
+    if (role === 'host') {
         hostSection.classList.remove('hidden');
         clientSection.classList.add('hidden');
+        videoPickerContainer.classList.remove('hidden');
+        videoLabel.textContent = mode === 'stream' ? 'Виберіть відеофайл для трансляції:' : 'Виберіть ваш локальний відеофайл:';
     } else {
         hostSection.classList.add('hidden');
         clientSection.classList.remove('hidden');
+        if (mode === 'stream') {
+            videoPickerContainer.classList.add('hidden'); // Клієнту не треба вибирати файл у режимі стріму
+        } else {
+            videoPickerContainer.classList.remove('hidden');
+            videoLabel.textContent = 'Виберіть такий же локальний відеофайл:';
+        }
     }
-});
+}
+
+modeSelect.addEventListener('change', updateUIState);
+roleSelect.addEventListener('change', updateUIState);
+updateUIState();
 
 videoInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
@@ -387,7 +414,11 @@ videoInput.addEventListener('change', (e) => {
     }
 });
 
-document.getElementById('changeVideoBtn').addEventListener('click', () => {
+changeVideoBtn.addEventListener('click', () => {
+    if (modeSelect.value === 'stream' && !isHost) {
+        alert("Тільки головний телефон може змінювати відеофайл у режимі трансляції.");
+        return;
+    }
     newVideoInput.click();
 });
 
@@ -409,7 +440,10 @@ function generateRandomCode() {
 }
 
 startHostBtn.addEventListener('click', () => {
-    if (!localVideoBlobUrl) { alert('Виберіть відеофайл!'); return; }
+    const mode = modeSelect.value;
+    if (mode === 'stream' && !localVideoBlobUrl) { alert('Виберіть відеофайл для трансляції!'); return; }
+    if (mode === 'local' && !localVideoBlobUrl) { alert('Виберіть локальний відеофайл!'); return; }
+
     requestFullscreenNow();
     isHost = true;
     startHostPeer();
@@ -447,7 +481,9 @@ function startHostPeer() {
 }
 
 connectClientBtn.addEventListener('click', () => {
-    if (!localVideoBlobUrl) { alert('Виберіть відеофайл!'); return; }
+    const mode = modeSelect.value;
+    if (mode === 'local' && !localVideoBlobUrl) { alert('Виберіть локальний відеофайл!'); return; }
+    
     const code = clientCodeInput.value.trim();
     if (code.length !== 5) { alert('Введіть 5-значний код!'); return; }
 
@@ -462,6 +498,18 @@ connectClientBtn.addEventListener('click', () => {
             conn = peer.connect('sp-' + code);
             setupConnection();
         });
+
+        // Якщо режим стріму, клієнт чекає на відеопотік
+        if (mode === 'stream') {
+            peer.on('call', (call) => {
+                call.answer();
+                call.on('stream', (remoteStream) => {
+                    videoPlayer.muted = true; // Заглушуємо клієнта, щоб не було луни
+                    videoPlayer.srcObject = remoteStream;
+                    videoPlayer.play().catch(e => {});
+                });
+            });
+        }
 
         peer.on('error', () => {
             connectionStatus.textContent = 'Помилка підключення. Перевірте код.';
@@ -495,6 +543,19 @@ function setupConnection() {
             videoPlayer.currentTime = 0;
             videoPlayer.play().catch(err => {});
             playPauseBtn.textContent = '❚❚ Пауза';
+
+            const mode = modeSelect.value;
+
+            // Якщо режим трансляції і це хост — надсилаємо стрім клієнту
+            if (mode === 'stream' && isHost) {
+                if (videoPlayer.captureStream) {
+                    localStream = videoPlayer.captureStream();
+                    peer.call(conn.peer, localStream);
+                } else if (videoPlayer.mozCaptureStream) {
+                    localStream = videoPlayer.mozCaptureStream();
+                    peer.call(conn.peer, localStream);
+                }
+            }
 
             if (isHost) {
                 if (syncInterval) clearInterval(syncInterval);
@@ -639,7 +700,6 @@ if (window.visualViewport) {
     });
 }
 
-// ---- Налаштування жестів та керування дотиками ----
 playerScreen.addEventListener('touchstart', (e) => {
     if (playerControls.contains(e.target)) return;
     
