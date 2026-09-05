@@ -323,14 +323,16 @@ let wakeLock = null;
 
 async function requestWakeLock() {
     try {
-        if ('wakeLock' in navigator) {
-            wakeLock = await navigator.wakeLock.request('screen');
+        if ('wakeLock' in navigator && document.visibilityState === 'visible') {
+            if (!wakeLock || wakeLock.released) {
+                wakeLock = await navigator.wakeLock.request('screen');
+            }
         }
     } catch (err) {}
 }
 
 document.addEventListener('visibilitychange', async () => {
-    if (wakeLock !== null && document.visibilityState === 'visible') {
+    if (document.visibilityState === 'visible') {
         await requestWakeLock();
     }
 });
@@ -414,6 +416,8 @@ function handleSelectedFile(file) {
         if (localVideoBlobUrl) URL.revokeObjectURL(localVideoBlobUrl);
         localVideoBlobUrl = URL.createObjectURL(file);
         videoPlayer.src = localVideoBlobUrl;
+        videoPlayer.muted = false;
+        videoPlayer.volume = 1.0;
         videoPlayer.load();
         connectionStatus.textContent = 'Статус: Файл завантажено на головному телефоні';
         
@@ -455,6 +459,7 @@ function startPeer(myId, connectId) {
         peer = new Peer(myId, peerConfig);
 
         peer.on('open', (id) => {
+            requestWakeLock();
             if (isHost) {
                 hostCodeDisplay.textContent = id.replace('sp-', '');
                 codeContainer.classList.remove('hidden');
@@ -467,6 +472,7 @@ function startPeer(myId, connectId) {
         });
 
         peer.on('connection', (connection) => {
+            requestWakeLock();
             conn = connection;
             setupConnection();
         });
@@ -482,6 +488,7 @@ function startPeer(myId, connectId) {
 function setupConnection() {
     requestWakeLock();
     conn.on('open', () => {
+        requestWakeLock();
         connectionStatus.textContent = 'Статус: З\'єднано! Синхронізація...';
         
         if (isHost) {
@@ -524,6 +531,8 @@ function setupConnection() {
                     connectionStatus.textContent = 'Статус: Обидва пристрої готові!';
                     setTimeout(() => {
                         videoPlayer.currentTime = 0;
+                        videoPlayer.muted = false;
+                        videoPlayer.volume = 1.0;
                         videoPlayer.play().catch(e => {});
                         playPauseBtn.textContent = '❚❚ Пауза';
                         if (conn && conn.open) {
@@ -535,6 +544,8 @@ function setupConnection() {
                     hidePlayerStatus();
                     videoPlayer.currentTime = 0;
                     videoPlayer.playbackRate = 1.0;
+                    videoPlayer.muted = false;
+                    videoPlayer.volume = 1.0;
                     videoPlayer.play().catch(e => {});
                     playPauseBtn.textContent = '❚❚ Пауза';
                     if (conn && conn.open) {
@@ -547,6 +558,8 @@ function setupConnection() {
                     hidePlayerStatus();
                     if (msg.time !== undefined) videoPlayer.currentTime = msg.time;
                     videoPlayer.playbackRate = 1.0;
+                    videoPlayer.muted = false;
+                    videoPlayer.volume = 1.0;
                     videoPlayer.play().catch(e=>{}); 
                     playPauseBtn.textContent = '❚❚ Пауза';
                     if (playerScreen.style.display !== 'block') enterPlayerMode(true);
@@ -573,6 +586,7 @@ function setupConnection() {
                     }
                 }
             } else {
+                requestWakeLock();
                 incomingChunks.push(rawdata);
                 receivedBytes += rawdata.byteLength;
 
@@ -591,6 +605,8 @@ function setupConnection() {
                     if (localVideoBlobUrl) URL.revokeObjectURL(localVideoBlobUrl);
                     localVideoBlobUrl = URL.createObjectURL(blob);
                     videoPlayer.src = localVideoBlobUrl;
+                    videoPlayer.muted = false;
+                    videoPlayer.volume = 1.0;
                     videoPlayer.load();
                     
                     if (isPlayerActive) {
@@ -613,6 +629,7 @@ function setupConnection() {
 }
 
 function sendFileToClientBinary(file, isMidStream = false) {
+    requestWakeLock();
     const CHUNK_SIZE = 64 * 1024;
     let offset = 0;
 
@@ -674,6 +691,8 @@ function enterPlayerMode(autoPlay = false) {
     updateVideoStyle();
     
     if (autoPlay) {
+        videoPlayer.muted = false;
+        videoPlayer.volume = 1.0;
         videoPlayer.play().then(() => {
             playPauseBtn.textContent = '❚❚ Пауза';
         }).catch(e => {
@@ -773,6 +792,7 @@ playerScreen.addEventListener('touchmove', (e) => {
             const deltaVol = diffY / 250;
             const newVol = Math.max(0, Math.min(1, initialVolume + deltaVol));
             videoPlayer.volume = newVol;
+            videoPlayer.muted = false;
             showVolumeIndicator(newVol);
         }
     }
@@ -791,6 +811,7 @@ playerScreen.addEventListener('click', (e) => {
 });
 
 function togglePlayPause() {
+    videoPlayer.muted = false;
     if (videoPlayer.paused) {
         videoPlayer.play().catch(e=>{});
         videoPlayer.playbackRate = 1.0;
@@ -815,6 +836,8 @@ restartBtn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     videoPlayer.currentTime = 0;
     videoPlayer.playbackRate = 1.0;
+    videoPlayer.muted = false;
+    videoPlayer.volume = 1.0;
     videoPlayer.play().catch(e=>{});
     playPauseBtn.textContent = '❚❚ Пауза';
     if (conn && conn.open) conn.send(JSON.stringify({ type: 'play', time: 0 }));
