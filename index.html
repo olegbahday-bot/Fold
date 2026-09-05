@@ -88,6 +88,27 @@ video.vid-el {
     object-fit: fill;
 }
 
+/* Індикатор гучності */
+.volume-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    padding: 12px 22px;
+    border-radius: 10px;
+    font-size: 22px;
+    font-weight: bold;
+    z-index: 300;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+}
+.volume-indicator.hidden {
+    opacity: 0;
+}
+
 /* Панель керування з внутрішньою прокруткою */
 .controls {
     position: absolute;
@@ -127,7 +148,6 @@ video.vid-el {
 }
 .controls button:hover { background: #45a049; }
 .btn-full { grid-column: span 3; }
-.btn-half { grid-column: span 2; }
 .reset-btn { background-color: #444; }
 .action-btn { background-color: #2196F3; }
 .scale-btn { background-color: #E91E63; }
@@ -206,6 +226,7 @@ input[type="range"].video-seek {
 <!-- Екран відеоплеєра -->
 <div id="playerScreen">
     <video id="videoPlayer" class="vid-el" playsinline></video>
+    <div id="volumeIndicator" class="volume-indicator hidden">🔊 100%</div>
     <input type="file" id="newVideoInput" accept="video/*" style="display: none;">
 
     <div class="controls" id="playerControls">
@@ -222,26 +243,24 @@ input[type="range"].video-seek {
 
         <div class="controls-grid">
             <button id="playPauseBtn" class="action-btn">▶ Грати</button>
-            <button id="syncTimeBtn" class="sync-btn">⚡ Синхроніз.</button>
+            <button id="restartBtn" class="action-btn">↺ З початку</button>
             <button id="fullscreenBtn" class="fullscreen-btn">⛶ Екран</button>
 
-            <button id="restartBtn" class="action-btn">↺ З початку</button>
-            <button id="changeVideoBtn" class="file-btn btn-half">📁 Інше відео</button>
-
+            <button id="changeVideoBtn" class="file-btn btn-full">📁 Вибрати інше відео</button>
             <button id="playerSaveBtn" class="save-btn btn-full">💾 Зберегти калібрування</button>
 
             <button id="scalePlusBtn" class="scale-btn">🔍 Збільшити (+)</button>
             <button id="resetShiftBtn" class="reset-btn">Скидання</button>
             <button id="scaleMinusBtn" class="scale-btn">🔍 Зменшити (-)</button>
 
-            <!-- Блок стрілок -->
+            <!-- Блок стрілок та синхронізація -->
             <button id="shiftLeftBtn">◄ Ліворуч</button>
             <button id="shiftUpBtn">▲ Вгору</button>
             <button id="shiftRightBtn">Праворуч ►</button>
 
             <button class="reset-btn" style="visibility: hidden;"></button>
             <button id="shiftDownBtn">▼ Вниз</button>
-            <button class="reset-btn" style="visibility: hidden;"></button>
+            <button id="syncTimeBtn" class="sync-btn">⚡ Синхроніз.</button>
         </div>
     </div>
 </div>
@@ -251,6 +270,7 @@ const setupCard = document.getElementById('setupCard');
 const playerScreen = document.getElementById('playerScreen');
 const videoPlayer = document.getElementById('videoPlayer');
 const playerControls = document.getElementById('playerControls');
+const volumeIndicator = document.getElementById('volumeIndicator');
 const newVideoInput = document.getElementById('newVideoInput');
 
 const roleSelect = document.getElementById('roleSelect');
@@ -288,6 +308,13 @@ let syncInterval = null;
 let partnerWidth = 0;
 let partnerHeight = 0;
 let isSeeking = false;
+
+// Змінні для жесту гучності
+let touchStartY = 0;
+let touchStartX = 0;
+let initialVolume = 1.0;
+let isVolumeDragging = false;
+let volumeTimeout = null;
 
 function formatTime(seconds) {
     if (isNaN(seconds)) return "0:00";
@@ -575,7 +602,6 @@ videoSeek.addEventListener('change', () => {
 
 function updateVideoStyle() {
     const myWidth = window.innerWidth;
-    // Якщо розмір партнера ще не прийшов, беремо ширину власного екрана для правильного пристикування одразу
     const pWidth = partnerWidth > 0 ? partnerWidth : myWidth;
     const position = positionSelect.value;
     const videoAspect = (videoPlayer.videoWidth && videoPlayer.videoHeight)
@@ -588,10 +614,8 @@ function updateVideoStyle() {
 
     let leftPos = 0;
     if (position === 'left') {
-        // Пристикування до лівого краю екрана
         leftPos = videoOffsetX;
     } else {
-        // Пристикування для правого екрана (зміщення вліво на ширину лівого пристрою)
         leftPos = videoOffsetX - pWidth * videoScaleMultiplier;
     }
 
@@ -611,6 +635,58 @@ if (window.visualViewport) {
         sendScreenInfo();
     });
 }
+
+// ---- Налаштування жестів та керування дотиками ----
+playerScreen.addEventListener('touchstart', (e) => {
+    // Якщо торкнулися панелі керування — жести не перехоплюємо
+    if (playerControls.contains(e.target)) return;
+    
+    if (e.touches.length === 1) {
+        touchStartY = e.touches[0].clientY;
+        touchStartX = e.touches[0].clientX;
+        initialVolume = videoPlayer.volume;
+        isVolumeDragging = false;
+    }
+}, { passive: true });
+
+playerScreen.addEventListener('touchmove', (e) => {
+    if (playerControls.contains(e.target)) return;
+
+    if (e.touches.length === 1) {
+        const currentY = e.touches[0].clientY;
+        const currentX = e.touches[0].clientX;
+        const deltaY = touchStartY - currentY; // додатне — вгору, від'ємне — вниз
+        const deltaX = Math.abs(currentX - touchStartX);
+
+        // Якщо рух переважно вертикальний і перевищує поріг (12 пікселів)
+        if (Math.abs(deltaY) > 12 && Math.abs(deltaY) > deltaX) {
+            isVolumeDragging = true;
+            // Кожні 300 пікселів екрана відповідають повному діапазону гучності від 0 до 1
+            let newVolume = initialVolume + (deltaY / 300);
+            videoPlayer.volume = Math.max(0, Math.min(1, newVolume));
+
+            // Показати індикатор гучності
+            const volPercent = Math.round(videoPlayer.volume * 100);
+            volumeIndicator.textContent = `🔊 ${volPercent}%`;
+            volumeIndicator.classList.remove('hidden');
+
+            clearTimeout(volumeTimeout);
+            volumeTimeout = setTimeout(() => {
+                volumeIndicator.classList.add('hidden');
+            }, 1000);
+        }
+    }
+}, { passive: true });
+
+playerScreen.addEventListener('touchend', (e) => {
+    // Якщо це не був жест гучності, то це такий собі "тап" для перемикання видимості панелі
+    if (!isVolumeDragging) {
+        if (!playerControls.contains(e.target)) {
+            playerControls.style.display = playerControls.style.display === 'none' ? 'flex' : 'none';
+        }
+    }
+    isVolumeDragging = false;
+});
 
 playPauseBtn.addEventListener('click', () => {
     if (videoPlayer.paused) {
@@ -673,12 +749,6 @@ function updateFullscreenText() {
         fullscreenBtn.textContent = '⛶ Екран';
     }
 }
-
-playerScreen.addEventListener('click', (e) => {
-    if (!playerControls.contains(e.target)) {
-        playerControls.style.display = playerControls.style.display === 'none' ? 'flex' : 'none';
-    }
-});
 
 function applyShift(dx, dy) {
     videoOffsetX += dx;
