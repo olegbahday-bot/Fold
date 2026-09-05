@@ -398,6 +398,7 @@ function handleSelectedFile(file) {
         localVideoBlobUrl = URL.createObjectURL(file);
         videoPlayer.src = localVideoBlobUrl;
         videoPlayer.load();
+        connectionStatus.textContent = 'Статус: Файл завантажено на головному телефоні';
         
         if (playerScreen.style.display === 'block' && isHost && currentMode === 'p2p' && conn && conn.open) {
             sendFileToClientBase64(file);
@@ -429,6 +430,7 @@ connectClientBtn.addEventListener('click', () => {
 });
 
 function startPeer(myId, connectId) {
+    requestWakeLock();
     connectionStatus.textContent = 'Статус: Підключення до сервера...';
     try {
         peer = new Peer(myId, peerConfig);
@@ -459,6 +461,7 @@ function startPeer(myId, connectId) {
 }
 
 function setupConnection() {
+    requestWakeLock();
     conn.on('open', () => {
         connectionStatus.textContent = 'Статус: З\'єднано! Синхронізація...';
         
@@ -474,10 +477,12 @@ function setupConnection() {
 
     conn.on('data', (rawdata) => {
         try {
+            requestWakeLock();
             const msg = typeof rawdata === 'string' ? JSON.parse(rawdata) : rawdata;
             
             if (msg.type === 'client_ready' && isHost) {
                 clientIsReady = true;
+                connectionStatus.textContent = 'Статус: Клієнт готовий. Початок передачі файлу...';
                 if (currentMode === 'p2p' && selectedFileObject) {
                     setTimeout(() => sendFileToClientBase64(selectedFileObject), 300);
                 }
@@ -485,16 +490,16 @@ function setupConnection() {
                 incomingFileMeta = msg;
                 incomingBase64Chunks = [];
                 receivedBytes = 0;
-                // Миттєво зупиняємо та очищаємо старе відео на клієнті, щоб воно не висіло
                 videoPlayer.pause();
                 videoPlayer.src = "";
+                connectionStatus.textContent = `Завантаження файлу: 0%`;
             } else if (msg.type === 'file_chunk') {
                 incomingBase64Chunks.push(msg.data);
                 const b64 = msg.data.includes(',') ? msg.data.split(',')[1] : msg.data;
                 receivedBytes += atob(b64).length;
 
                 const percent = Math.min(100, Math.round((receivedBytes / incomingFileMeta.size) * 100));
-                currentTimeText.textContent = `${percent}%`;
+                connectionStatus.textContent = `Завантаження файлу: ${percent}%`;
 
                 if (receivedBytes >= incomingFileMeta.size) {
                     const byteArrays = incomingBase64Chunks.map(chunk => {
@@ -511,6 +516,7 @@ function setupConnection() {
                     localVideoBlobUrl = URL.createObjectURL(blob);
                     videoPlayer.src = localVideoBlobUrl;
                     videoPlayer.load();
+                    connectionStatus.textContent = 'Статус: Файл повністю завантажено!';
                     
                     setTimeout(() => {
                         conn.send(JSON.stringify({ type: 'client_file_ready' }));
@@ -518,6 +524,7 @@ function setupConnection() {
                     }, 500);
                 }
             } else if (msg.type === 'client_file_ready' && isHost) {
+                connectionStatus.textContent = 'Статус: Обидва пристрої готові!';
                 setTimeout(() => {
                     videoPlayer.currentTime = 0;
                     videoPlayer.play().catch(e => {});
@@ -561,6 +568,7 @@ function sendFileToClientBase64(file) {
     }));
 
     function readNextChunk() {
+        requestWakeLock();
         const slice = file.slice(offset, offset + CHUNK_SIZE);
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -572,10 +580,12 @@ function sendFileToClientBase64(file) {
             offset += slice.size;
             
             const percent = Math.round((offset / file.size) * 100);
-            currentTimeText.textContent = `${percent}%`;
+            connectionStatus.textContent = `Відправка файлу: ${percent}%`;
 
             if (offset < file.size) {
                 setTimeout(readNextChunk, 5);
+            } else {
+                connectionStatus.textContent = 'Статус: Файл передано! Очікування клієнта...';
             }
         };
         reader.readAsDataURL(slice);
@@ -585,6 +595,7 @@ function sendFileToClientBase64(file) {
 }
 
 function enterPlayerMode(autoPlay = false) {
+    requestWakeLock();
     setupCard.style.display = 'none';
     playerScreen.style.display = 'block';
     
