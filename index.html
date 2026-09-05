@@ -233,6 +233,8 @@ input[type="range"].video-seek {
 <div id="playerScreen">
     <video id="videoPlayer" class="vid-el" playsinline webkit-playsinline></video>
 
+    <div id="playerStatusOverlay" style="position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); color: #ff9800; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: bold; z-index: 250; display: none; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5);"></div>
+
     <div class="controls" id="playerControls">
         <div class="timeline-container">
             <div class="time-labels">
@@ -354,6 +356,21 @@ function formatTime(s) {
     return Math.floor(s / 60) + ":" + Math.floor(s % 60).toString().padStart(2, '0');
 }
 
+function showPlayerStatus(text) {
+    let overlay = document.getElementById('playerStatusOverlay');
+    if (overlay) {
+        overlay.textContent = text;
+        overlay.style.display = 'block';
+    }
+}
+
+function hidePlayerStatus() {
+    let overlay = document.getElementById('playerStatusOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
+
 const peerConfig = {
     host: '0.peerjs.com',
     port: 443,
@@ -401,7 +418,9 @@ function handleSelectedFile(file) {
         connectionStatus.textContent = 'Статус: Файл завантажено на головному телефоні';
         
         if (playerScreen.style.display === 'block' && isHost && currentMode === 'p2p' && conn && conn.open) {
-            sendFileToClientBinary(file);
+            conn.send(JSON.stringify({ type: 'pause' }));
+            showPlayerStatus('Підготовка до передачі нового файлу...');
+            sendFileToClientBinary(file, true);
         }
     }
 }
@@ -486,7 +505,7 @@ function setupConnection() {
                     clientIsReady = true;
                     connectionStatus.textContent = 'Статус: Клієнт готовий. Початок передачі файлу...';
                     if (currentMode === 'p2p' && selectedFileObject) {
-                        setTimeout(() => sendFileToClientBinary(selectedFileObject), 300);
+                        setTimeout(() => sendFileToClientBinary(selectedFileObject, false), 300);
                     }
                 } else if (msg.type === 'file_meta') {
                     incomingFileMeta = msg;
@@ -494,7 +513,13 @@ function setupConnection() {
                     receivedBytes = 0;
                     videoPlayer.pause();
                     videoPlayer.src = "";
-                    connectionStatus.textContent = `Завантаження файлу: 0%`;
+                    const isPlayerActive = (playerScreen.style.display === 'block');
+                    const metaStatus = isPlayerActive ? 'Завантаження нового файлу: 0%' : `Завантаження файлу: 0%`;
+                    if (isPlayerActive) {
+                        showPlayerStatus(metaStatus);
+                    } else {
+                        connectionStatus.textContent = metaStatus;
+                    }
                 } else if (msg.type === 'client_file_ready' && isHost) {
                     connectionStatus.textContent = 'Статус: Обидва пристрої готові!';
                     setTimeout(() => {
@@ -506,10 +531,20 @@ function setupConnection() {
                         }
                         enterPlayerMode(true);
                     }, 600);
+                } else if (msg.type === 'client_new_file_ready' && isHost) {
+                    hidePlayerStatus();
+                    videoPlayer.currentTime = 0;
+                    videoPlayer.playbackRate = 1.0;
+                    videoPlayer.play().catch(e => {});
+                    playPauseBtn.textContent = '❚❚ Пауза';
+                    if (conn && conn.open) {
+                        conn.send(JSON.stringify({ type: 'play', time: 0 }));
+                    }
                 } else if (msg.type === 'screen_info') {
                     partnerWidth = msg.width;
                     updateVideoStyle();
                 } else if (msg.type === 'play') { 
+                    hidePlayerStatus();
                     if (msg.time !== undefined) videoPlayer.currentTime = msg.time;
                     videoPlayer.playbackRate = 1.0;
                     videoPlayer.play().catch(e=>{}); 
@@ -523,21 +558,16 @@ function setupConnection() {
                     videoPlayer.currentTime = msg.time;
                     videoPlayer.playbackRate = 1.0;
                 } else if (msg.type === 'sync_time') {
-                    // Плавна синхронізація без ривків через playbackRate
                     if (!isHost && !isSeeking && !videoPlayer.paused) {
                         const diff = msg.time - videoPlayer.currentTime;
                         if (Math.abs(diff) > 1.5) {
-                            // Якщо розбіжність велика — виконуємо м'який перехід часу
                             videoPlayer.currentTime = msg.time;
                             videoPlayer.playbackRate = 1.0;
                         } else if (diff > 0.08) {
-                            // Клієнт відстає — ледь-ледь прискорюємося
                             videoPlayer.playbackRate = 1.04;
                         } else if (diff < -0.08) {
-                            // Клієнт випереджає — ледь-ледь уповільнюємося
                             videoPlayer.playbackRate = 0.96;
                         } else {
-                            // Ідеально синхронно
                             videoPlayer.playbackRate = 1.0;
                         }
                     }
@@ -547,7 +577,14 @@ function setupConnection() {
                 receivedBytes += rawdata.byteLength;
 
                 const percent = Math.min(100, Math.round((receivedBytes / incomingFileMeta.size) * 100));
-                connectionStatus.textContent = `Завантаження файлу: ${percent}%`;
+                const isPlayerActive = (playerScreen.style.display === 'block');
+                const percentStatus = isPlayerActive ? `Завантаження нового файлу: ${percent}%` : `Завантаження файлу: ${percent}%`;
+                
+                if (isPlayerActive) {
+                    showPlayerStatus(percentStatus);
+                } else {
+                    connectionStatus.textContent = percentStatus;
+                }
 
                 if (receivedBytes >= incomingFileMeta.size) {
                     const blob = new Blob(incomingChunks, { type: incomingFileMeta.mime });
@@ -555,19 +592,27 @@ function setupConnection() {
                     localVideoBlobUrl = URL.createObjectURL(blob);
                     videoPlayer.src = localVideoBlobUrl;
                     videoPlayer.load();
-                    connectionStatus.textContent = 'Статус: Файл повністю завантажено!';
                     
-                    setTimeout(() => {
-                        conn.send(JSON.stringify({ type: 'client_file_ready' }));
-                        enterPlayerMode(false);
-                    }, 500);
+                    if (isPlayerActive) {
+                        showPlayerStatus('Файл завантажено! Синхронізація...');
+                        setTimeout(() => {
+                            hidePlayerStatus();
+                            conn.send(JSON.stringify({ type: 'client_new_file_ready' }));
+                        }, 500);
+                    } else {
+                        connectionStatus.textContent = 'Статус: Файл повністю завантажено!';
+                        setTimeout(() => {
+                            conn.send(JSON.stringify({ type: 'client_file_ready' }));
+                            enterPlayerMode(false);
+                        }, 500);
+                    }
                 }
             }
         } catch(e){}
     });
 }
 
-function sendFileToClientBinary(file) {
+function sendFileToClientBinary(file, isMidStream = false) {
     const CHUNK_SIZE = 64 * 1024;
     let offset = 0;
 
@@ -588,12 +633,23 @@ function sendFileToClientBinary(file) {
             offset += slice.size;
             
             const percent = Math.round((offset / file.size) * 100);
-            connectionStatus.textContent = `Відправка файлу: ${percent}%`;
+            const statusText = isMidStream ? `Відправка нового файлу: ${percent}%` : `Відправка файлу: ${percent}%`;
+            
+            if (isMidStream) {
+                showPlayerStatus(statusText);
+            } else {
+                connectionStatus.textContent = statusText;
+            }
 
             if (offset < file.size) {
                 setTimeout(readNextChunk, 1);
             } else {
-                connectionStatus.textContent = 'Статус: Файл передано! Очікування клієнта...';
+                const finalStatus = isMidStream ? 'Файл передано! Очікування клієнта...' : 'Статус: Файл передано! Очікування клієнта...';
+                if (isMidStream) {
+                    showPlayerStatus(finalStatus);
+                } else {
+                    connectionStatus.textContent = finalStatus;
+                }
             }
         };
         reader.readAsArrayBuffer(slice);
@@ -632,7 +688,6 @@ function enterPlayerMode(autoPlay = false) {
 
     if (isHost) {
         if (syncInterval) clearInterval(syncInterval);
-        // Збільшуємо інтервал синхронізації до 1000мс (1 секунда) для зменшення навантаження мережі
         syncInterval = setInterval(() => {
             if (conn && conn.open && !videoPlayer.paused) {
                 conn.send(JSON.stringify({ type: 'sync_time', time: videoPlayer.currentTime }));
@@ -677,6 +732,26 @@ playerControls.addEventListener('click', (e) => {
 let touchStartY = 0;
 let initialVolume = 1.0;
 let hasMoved = false;
+let volumeTimeout = null;
+
+function showVolumeIndicator(vol) {
+    let indicator = document.getElementById('volumeIndicator');
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'volumeIndicator';
+        indicator.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.85); color: #fff; padding: 12px 24px; border-radius: 10px; font-size: 18px; font-weight: bold; z-index: 300; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; box-shadow: 0 4px 15px rgba(0,0,0,0.5);';
+        playerScreen.appendChild(indicator);
+    }
+    const percent = Math.round(vol * 100);
+    const icon = percent === 0 ? '🔇' : percent < 50 ? '🔉' : '🔊';
+    indicator.textContent = `${icon} ${percent}%`;
+    indicator.style.opacity = '1';
+    
+    if (volumeTimeout) clearTimeout(volumeTimeout);
+    volumeTimeout = setTimeout(() => {
+        indicator.style.opacity = '0';
+    }, 1000);
+}
 
 playerScreen.addEventListener('touchstart', (e) => {
     if (e.target.closest('#playerControls')) return;
@@ -693,10 +768,12 @@ playerScreen.addEventListener('touchmove', (e) => {
         const currentY = e.touches[0].clientY;
         const diffY = touchStartY - currentY;
         
-        if (Math.abs(diffY) > 15) {
+        if (Math.abs(diffY) > 10) {
             hasMoved = true;
-            const deltaVol = diffY / 200;
-            videoPlayer.volume = Math.max(0, Math.min(1, initialVolume + deltaVol));
+            const deltaVol = diffY / 250;
+            const newVol = Math.max(0, Math.min(1, initialVolume + deltaVol));
+            videoPlayer.volume = newVol;
+            showVolumeIndicator(newVol);
         }
     }
 }, {passive: true});
@@ -740,7 +817,7 @@ restartBtn.addEventListener('pointerdown', (e) => {
     videoPlayer.playbackRate = 1.0;
     videoPlayer.play().catch(e=>{});
     playPauseBtn.textContent = '❚❚ Пауза';
-    if (conn && conn.open) conn.send(JSON.stringify({ type: 'seek', time: 0 }));
+    if (conn && conn.open) conn.send(JSON.stringify({ type: 'play', time: 0 }));
 });
 
 syncTimeBtn.addEventListener('pointerdown', (e) => {
