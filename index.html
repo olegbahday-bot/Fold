@@ -227,7 +227,7 @@ input[type="range"].video-seek {
         <button id="connectClientBtn">Підключитися</button>
     </div>
 
-    <div class="status" id="connectionStatus">Статус: Готово. Виберіть файл на головному телефоні.</div>
+    <div class="status" id="connectionStatus">Статус: Готово. Виберіть файл.</div>
 </div>
 
 <div id="playerScreen">
@@ -401,10 +401,11 @@ function updateUIState() {
         videoPickerContainer.classList.toggle('hidden', !isHost);
         videoLabel.textContent = 'Виберіть відеофайл (.mp4) для відправки:';
     } else if (currentMode === 'local') {
-        videoPickerContainer.classList.remove('hidden');
-        videoLabel.textContent = 'Виберіть локальний файл (.mp4):';
-    } else {
+        videoPickerContainer.classList.remove('hidden'); // Available for both host and client
+        videoLabel.textContent = 'Виберіть свій локальний файл (.mp4):';
+    } else if (currentMode === 'stream') {
         videoPickerContainer.classList.toggle('hidden', !isHost);
+        videoLabel.textContent = 'Виберіть відео для стрімінгу:';
     }
 }
 updateUIState();
@@ -419,7 +420,7 @@ function handleSelectedFile(file) {
         videoPlayer.muted = false;
         videoPlayer.volume = 1.0;
         videoPlayer.load();
-        connectionStatus.textContent = 'Статус: Файл завантажено на головному телефоні';
+        connectionStatus.textContent = 'Статус: Файл завантажено';
         
         if (playerScreen.style.display === 'block' && isHost && currentMode === 'p2p' && conn && conn.open) {
             conn.send(JSON.stringify({ type: 'pause' }));
@@ -438,7 +439,7 @@ dynamicVideoInput.addEventListener('change', (e) => {
 });
 
 startHostBtn.addEventListener('click', () => {
-    if (currentMode === 'p2p' && !selectedFileObject) { alert('Виберіть відеофайл спочатку!'); return; }
+    if ((currentMode === 'p2p' || currentMode === 'stream') && !selectedFileObject) { alert('Виберіть відеофайл спочатку!'); return; }
     isHost = true;
     requestWakeLock();
     startPeer('sp-' + Math.floor(10000 + Math.random() * 90000));
@@ -447,6 +448,7 @@ startHostBtn.addEventListener('click', () => {
 connectClientBtn.addEventListener('click', () => {
     const code = clientCodeInput.value.trim();
     if (code.length !== 5) { alert('Введіть 5-значний код!'); return; }
+    if (currentMode === 'local' && !selectedFileObject) { alert('Виберіть свій локальний файл спочатку!'); return; }
     isHost = false;
     requestWakeLock();
     startPeer(null, 'sp-' + code);
@@ -477,6 +479,18 @@ function startPeer(myId, connectId) {
             setupConnection();
         });
 
+        // Handle incoming media stream for Mode 1 (Streaming)
+        peer.on('call', (call) => {
+            call.answer();
+            call.on('stream', (remoteStream) => {
+                videoPlayer.srcObject = remoteStream;
+                videoPlayer.muted = false;
+                videoPlayer.volume = 1.0;
+                videoPlayer.play().catch(e => {});
+                enterPlayerMode(true);
+            });
+        });
+
         peer.on('error', (err) => {
             connectionStatus.textContent = 'Помилка PeerJS: ' + err.type;
         });
@@ -495,8 +509,16 @@ function setupConnection() {
             conn.send(JSON.stringify({ type: 'sync_mode', mode: currentMode }));
         } else {
             setTimeout(() => {
-                conn.send(JSON.stringify({ type: 'client_ready' }));
-                connectionStatus.textContent = 'Статус: Очікування файлу від головного телефону...';
+                if (currentMode === 'p2p') {
+                    conn.send(JSON.stringify({ type: 'client_ready' }));
+                    connectionStatus.textContent = 'Статус: Очікування файлу від головного телефону...';
+                } else if (currentMode === 'local') {
+                    conn.send(JSON.stringify({ type: 'client_local_ready' }));
+                    connectionStatus.textContent = 'Статус: Очікування старту від головного телефону...';
+                } else if (currentMode === 'stream') {
+                    conn.send(JSON.stringify({ type: 'client_stream_ready' }));
+                    connectionStatus.textContent = 'Статус: Очікування трансляції від головного телефону...';
+                }
             }, 300);
         }
     });
@@ -508,12 +530,50 @@ function setupConnection() {
             if (typeof rawdata === 'string') {
                 const msg = JSON.parse(rawdata);
                 
-                if (msg.type === 'client_ready' && isHost) {
+                if (msg.type === 'sync_mode') {
+                    currentMode = msg.mode;
+                    updateUIState();
+                } else if (msg.type === 'client_ready' && isHost) {
                     clientIsReady = true;
                     connectionStatus.textContent = 'Статус: Клієнт готовий. Початок передачі файлу...';
                     if (currentMode === 'p2p' && selectedFileObject) {
                         setTimeout(() => sendFileToClientBinary(selectedFileObject, false), 300);
                     }
+                } else if (msg.type === 'client_local_ready' && isHost) {
+                    connectionStatus.textContent = 'Статус: Обидва пристрої готові (Локальні файли)!';
+                    setTimeout(() => {
+                        videoPlayer.currentTime = 0;
+                        videoPlayer.muted = false;
+                        videoPlayer.volume = 1.0;
+                        videoPlayer.play().catch(e => {});
+                        playPauseBtn.textContent = '❚❚ Пауза';
+                        if (conn && conn.open) {
+                            conn.send(JSON.stringify({ type: 'play', time: 0 }));
+                        }
+                        enterPlayerMode(true);
+                    }, 600);
+                } else if (msg.type === 'client_stream_ready' && isHost) {
+                    connectionStatus.textContent = 'Статус: Клієнт готовий до стрімінгу!';
+                    setTimeout(() => {
+                        videoPlayer.currentTime = 0;
+                        videoPlayer.muted = false;
+                        videoPlayer.volume = 1.0;
+                        videoPlayer.play().catch(e => {});
+                        playPauseBtn.textContent = '❚❚ Пауза';
+                        
+                        // Initiate WebRTC stream call
+                        if (currentMode === 'stream' && conn && conn.open) {
+                            const stream = videoPlayer.captureStream ? videoPlayer.captureStream() : videoPlayer.mozCaptureStream();
+                            if (stream && peer) {
+                                peer.call(conn.peer, stream);
+                            }
+                        }
+
+                        if (conn && conn.open) {
+                            conn.send(JSON.stringify({ type: 'play', time: 0 }));
+                        }
+                        enterPlayerMode(true);
+                    }, 600);
                 } else if (msg.type === 'file_meta') {
                     incomingFileMeta = msg;
                     incomingChunks = [];
@@ -630,7 +690,7 @@ function setupConnection() {
 
 async function sendFileToClientBinary(file, isMidStream = false) {
     requestWakeLock();
-    const CHUNK_SIZE = 512 * 1024; // Збільшено блок до 512 КБ для максимальної швидкості
+    const CHUNK_SIZE = 512 * 1024;
     let offset = 0;
 
     conn.send(JSON.stringify({
@@ -644,7 +704,6 @@ async function sendFileToClientBinary(file, isMidStream = false) {
         if (!conn || !conn.open) break;
         requestWakeLock();
 
-        // Контроль буфера WebRTC, щоб канал не переповнювався
         const dc = conn.dataChannel;
         while (dc && dc.bufferedAmount > 16 * 1024 * 1024) {
             await new Promise(resolve => setTimeout(resolve, 30));
