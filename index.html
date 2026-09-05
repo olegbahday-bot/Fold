@@ -3,24 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P Комбайн (Зручні короткі коди)</title>
+    <title>P2P Комбайн</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 16px; display: flex; flex-direction: column; align-items: center; }
-        .container { width: 100%; max-width: 600px; background: #1e293b; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); box-sizing: border-box; }
-        h2 { font-size: 1.25rem; margin-top: 0; color: #38bdf8; text-align: center; }
-        .section { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid #334155; }
+        body { font-family: Arial, sans-serif; background: #f4f4f9; color: #333; margin: 0; padding: 16px; display: flex; flex-direction: column; align-items: center; }
+        .container { width: 100%; max-width: 600px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); box-sizing: border-box; }
+        h2 { font-size: 1.25rem; margin-top: 0; color: #2c3e50; text-align: center; }
+        .section { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid #ddd; }
         .section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-        label { display: block; font-size: 0.875rem; color: #94a3b8; margin-bottom: 6px; }
-        select, input[type="text"], input[type="file"] { width: 100%; padding: 10px; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: #fff; box-sizing: border-box; margin-bottom: 8px; }
+        label { display: block; font-size: 0.9rem; color: #555; margin-bottom: 4px; }
+        select, input[type="text"], input[type="file"] { width: 100%; padding: 8px; background: #fff; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin-bottom: 8px; }
         .row { display: flex; gap: 8px; }
         .row > div { flex: 1; }
-        button { background: #0284c7; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; width: 100%; transition: background 0.2s; margin-top: 4px; }
-        button:hover { background: #0369a1; }
-        button:disabled { background: #475569; cursor: not-allowed; }
-        video { width: 100%; max-height: 220px; background: #000; border-radius: 6px; margin-top: 8px; object-fit: cover; }
-        .status { font-size: 0.875rem; color: #cbd5e1; margin-top: 8px; }
-        .progress-bar { width: 100%; background: #334155; border-radius: 4px; overflow: hidden; height: 8px; margin-top: 8px; }
-        .progress-fill { width: 0%; height: 100%; background: #22c55e; transition: width 0.1s linear; }
+        button { background: #3498db; color: white; border: none; padding: 10px 16px; border-radius: 4px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 4px; }
+        button:hover { background: #2980b9; }
+        button:disabled { background: #bdc3c7; cursor: not-allowed; }
+        video { width: 100%; max-height: 220px; background: #000; border-radius: 4px; margin-top: 8px; object-fit: cover; }
+        .status { font-size: 0.85rem; color: #666; margin-top: 6px; }
+        .progress-bar { width: 100%; background: #e0e0e0; border-radius: 4px; overflow: hidden; height: 8px; margin-top: 8px; }
+        .progress-fill { width: 0%; height: 100%; background: #2ecc71; transition: width 0.1s linear; }
         .mode-pane { display: none; }
         .mode-pane.active { display: block; }
     </style>
@@ -30,7 +30,7 @@
         <h2>P2P Мультикомбайн</h2>
         
         <div class="section">
-            <label for="modeSelect">Виберіть режим роботи:</label>
+            <label for="modeSelect">Режим роботи:</label>
             <select id="modeSelect">
                 <option value="stream">Режим 1: Живий стрімінг з камери</option>
                 <option value="sync">Режим 2: Синхронізація локальних файлів</option>
@@ -41,37 +41,37 @@
         <div class="section">
             <div class="row">
                 <div>
-                    <label for="myCodeInput">Мій короткий код:</label>
-                    <input type="text" id="myCodeInput" value="phone1" placeholder="Напр: 1">
+                    <label for="myCodeInput">Мій код:</label>
+                    <input type="text" id="myCodeInput" value="phone1">
                 </div>
                 <div>
                     <label for="peerCodeInput">Код партнера:</label>
-                    <input type="text" id="peerCodeInput" value="phone2" placeholder="Напр: 2">
+                    <input type="text" id="peerCodeInput" value="phone2">
                 </div>
             </div>
             <button id="connectBtn">Підключитися</button>
             <div id="connectionStatus" class="status">Статус: Очікування підключення...</div>
         </div>
 
-        <!-- РЕЖИМ 1: Живий стрімінг -->
+        <!-- РЕЖИМ 1 -->
         <div id="pane-stream" class="mode-pane section">
             <label>Локальна камера:</label>
             <video id="localVideo" autoplay muted playsinline></video>
-            <label style="margin-top: 12px;">Отриманий стрімінг:</label>
+            <label style="margin-top: 10px;">Отриманий стрімінг:</label>
             <video id="remoteVideo" autoplay playsinline></video>
         </div>
 
-        <!-- РЕЖИМ 2: Синхронізація локальних файлів -->
+        <!-- РЕЖИМ 2 -->
         <div id="pane-sync" class="mode-pane section">
-            <label style="color: #38bdf8; font-weight: bold;">Спільний перегляд (кожен обирає свій файл)</label>
+            <label style="font-weight: bold;">Спільний перегляд (кожен обирає свій файл)</label>
             <input type="file" id="syncFileInput" accept="video/*">
             <div id="syncTransferStatus" class="status">Файл не вибрано</div>
             <video id="syncVideoPlayer" controls playsinline style="margin-top: 8px;"></video>
         </div>
 
-        <!-- РЕЖИМ 3: P2P Передача файлу частинами -->
+        <!-- РЕЖИМ 3 -->
         <div id="pane-chunk" class="mode-pane section">
-            <label style="color: #38bdf8; font-weight: bold;">P2P Передача файлу (з контролем буфера)</label>
+            <label style="font-weight: bold;">P2P Передача файлу (з контролем буфера)</label>
             <input type="file" id="chunkFileInput" accept="video/*">
             <button id="sendChunkBtn" disabled>Надіслати файл по P2P</button>
             <div id="chunkTransferStatus" class="status">Очікування файлу</div>
@@ -102,25 +102,20 @@
 
         function initPeer() {
             if (peer) peer.destroy();
-            
             const customId = myCodeInput.value.trim();
             if (!customId) return;
 
             connectionStatus.textContent = 'Статус: Реєстрація коду...';
-            
-            // Створюємо Peer із вашим власним коротким ID
             peer = new Peer(customId);
 
             peer.on('open', (id) => {
                 connectionStatus.textContent = `Статус: Готовий (ваш код: ${id})`;
-                connectionStatus.style.color = '#38bdf8';
             });
 
             peer.on('connection', (conn) => {
                 activeConn = conn;
                 setupDataConnection(modeSelect.value);
                 connectionStatus.textContent = 'Статус: Підключено (вхідне зʼєднання)';
-                connectionStatus.style.color = '#22c55e';
             });
 
             peer.on('call', async (call) => {
@@ -136,16 +131,13 @@
                     document.getElementById('remoteVideo').srcObject = remoteStream;
                 });
                 connectionStatus.textContent = 'Статус: Відеопотік прийнято!';
-                connectionStatus.style.color = '#22c55e';
             });
 
             peer.on('error', (err) => {
-                connectionStatus.textContent = `Помилка: ${err.type} (можливо, код зайнятий)`;
-                connectionStatus.style.color = '#ef4444';
+                connectionStatus.textContent = `Помилка: ${err.type}`;
             });
         }
 
-        // Переініціалізація при зміні вашого коду
         myCodeInput.addEventListener('change', () => initPeer());
 
         connectBtn.addEventListener('click', () => {
@@ -163,7 +155,6 @@
                         document.getElementById('remoteVideo').srcObject = remoteStream;
                     });
                     connectionStatus.textContent = 'Статус: Стрім надіслано!';
-                    connectionStatus.style.color = '#22c55e';
                 }).catch(err => alert('Помилка камери: ' + err));
             } else {
                 activeConn = peer.connect(remoteId, { reliable: true });
@@ -178,7 +169,6 @@
 
             activeConn.on('open', () => {
                 connectionStatus.textContent = 'Статус: Зʼєднання встановлено!';
-                connectionStatus.style.color = '#22c55e';
                 if (mode === 'chunk') {
                     document.getElementById('sendChunkBtn').disabled = false;
                 }
@@ -229,7 +219,6 @@
             });
         }
 
-        // Локальні файли (Режим 2)
         document.getElementById('syncFileInput').addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
@@ -254,7 +243,6 @@
         }
         bindSyncEvents(document.getElementById('syncVideoPlayer'));
 
-        // Передача файлу частинами (Режим 3)
         document.getElementById('sendChunkBtn').addEventListener('click', async () => {
             const fileInput = document.getElementById('chunkFileInput');
             const file = fileInput.files[0];
@@ -295,7 +283,6 @@
             playerEl.src = URL.createObjectURL(file);
         });
 
-        // Старт при завантаженні сторінки
         initPeer();
     </script>
 </body>
