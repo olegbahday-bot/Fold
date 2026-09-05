@@ -162,7 +162,7 @@ video.vid-el {
 .fullscreen-btn { background-color: #FF9800; }
 .save-btn { background-color: #FF5722; }
 .sync-btn { background-color: #9C27B0; }
-.sound-btn { background-color: #009688; }
+.video-change-btn { background-color: #3F51B5; }
 
 .timeline-container { width: 100%; margin-bottom: 4px; box-sizing: border-box; }
 .time-labels {
@@ -248,6 +248,7 @@ input[type="range"].video-seek {
             <button id="fullscreenBtn" class="fullscreen-btn">⛶ Екран</button>
 
             <button id="playerSaveBtn" class="save-btn btn-full">💾 Зберегти калібрування</button>
+            <button id="changeVideoBtn" class="video-change-btn btn-full" style="display:none;">📁 Вибрати інше відео</button>
 
             <button id="scalePlusBtn" class="scale-btn">🔍 Збільшити</button>
             <button id="resetShiftBtn" class="reset-btn">Скидання</button>
@@ -257,12 +258,13 @@ input[type="range"].video-seek {
             <button id="shiftUpBtn">▲ Вгору</button>
             <button id="shiftRightBtn">Праворуч ►</button>
 
-            <button id="muteBtn" class="sound-btn">🔊 Звук</button>
-            <button id="shiftDownBtn">▼ Вниз</button>
-            <button id="syncTimeBtn" class="sync-btn">⚡ Синхроніз.</button>
+            <button id="shiftDownBtn" class="btn-full">▼ Вниз</button>
+            <button id="syncTimeBtn" class="sync-btn btn-full">⚡ Синхронізувати час</button>
         </div>
     </div>
 </div>
+
+<input type="file" id="dynamicVideoInput" accept="video/mp4,video/webm" style="display:none;">
 
 <script>
 const setupCard = document.getElementById('setupCard');
@@ -274,6 +276,7 @@ const modeButtons = document.querySelectorAll('.mode-btn');
 const roleSelect = document.getElementById('roleSelect');
 const positionSelect = document.getElementById('positionSelect');
 const videoInput = document.getElementById('videoInput');
+const dynamicVideoInput = document.getElementById('dynamicVideoInput');
 const videoPickerContainer = document.getElementById('videoPickerContainer');
 const videoLabel = document.getElementById('videoLabel');
 const hostSection = document.getElementById('hostSection');
@@ -290,7 +293,7 @@ const playPauseBtn = document.getElementById('playPauseBtn');
 const restartBtn = document.getElementById('restartBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
 const syncTimeBtn = document.getElementById('syncTimeBtn');
-const muteBtn = document.getElementById('muteBtn');
+const changeVideoBtn = document.getElementById('changeVideoBtn');
 
 const currentTimeText = document.getElementById('currentTimeText');
 const durationText = document.getElementById('durationText');
@@ -387,13 +390,28 @@ function updateUIState() {
 }
 updateUIState();
 
-videoInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
+function handleSelectedFile(file) {
     if (file) {
         selectedFileObject = file;
         localVideoBlobUrl = URL.createObjectURL(file);
         videoPlayer.src = localVideoBlobUrl;
         connectionStatus.textContent = 'Статус: Файл завантажено на головному телефоні';
+        
+        // Якщо ми вже в плеєрі і ми хост (в режимі p2p)
+        if (playerScreen.style.display === 'block' && isHost && currentMode === 'p2p' && conn && conn.open) {
+            sendFileToClientBase64(file);
+        }
+    }
+}
+
+videoInput.addEventListener('change', (e) => {
+    handleSelectedFile(e.target.files[0]);
+});
+
+dynamicVideoInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        handleSelectedFile(file);
     }
 });
 
@@ -470,14 +488,12 @@ function setupConnection() {
                 incomingFileMeta = msg;
                 incomingBase64Chunks = [];
                 receivedBytes = 0;
-                connectionStatus.textContent = `Завантаження файлу: 0%`;
             } else if (msg.type === 'file_chunk') {
                 incomingBase64Chunks.push(msg.data);
                 const b64 = msg.data.includes(',') ? msg.data.split(',')[1] : msg.data;
                 receivedBytes += atob(b64).length;
 
                 const percent = Math.min(100, Math.round((receivedBytes / incomingFileMeta.size) * 100));
-                connectionStatus.textContent = `Завантаження файлу: ${percent}%`;
                 currentTimeText.textContent = `${percent}%`;
 
                 if (receivedBytes >= incomingFileMeta.size) {
@@ -494,7 +510,6 @@ function setupConnection() {
                     localVideoBlobUrl = URL.createObjectURL(blob);
                     videoPlayer.src = localVideoBlobUrl;
                     videoPlayer.load();
-                    connectionStatus.textContent = 'Статус: Файл повністю завантажено! Готовність до синхронізації...';
                     
                     setTimeout(() => {
                         conn.send(JSON.stringify({ type: 'client_file_ready' }));
@@ -502,7 +517,6 @@ function setupConnection() {
                     }, 500);
                 }
             } else if (msg.type === 'client_file_ready' && isHost) {
-                connectionStatus.textContent = 'Статус: Обидва пристрої готові! Синхронний старт...';
                 setTimeout(() => {
                     videoPlayer.currentTime = 0;
                     videoPlayer.play().catch(e => {});
@@ -557,12 +571,10 @@ function sendFileToClientBase64(file) {
             offset += slice.size;
             
             const percent = Math.round((offset / file.size) * 100);
-            connectionStatus.textContent = `Відправка файлу: ${percent}%`;
+            currentTimeText.textContent = `${percent}%`;
 
             if (offset < file.size) {
                 setTimeout(readNextChunk, 5);
-            } else {
-                connectionStatus.textContent = 'Статус: Файл передано! Очікування клієнта...';
             }
         };
         reader.readAsDataURL(slice);
@@ -575,6 +587,11 @@ function enterPlayerMode(autoPlay = false) {
     setupCard.style.display = 'none';
     playerScreen.style.display = 'block';
     
+    // Показуємо кнопку зміни відео тільки для Голова (або загально в p2p)
+    if (isHost && currentMode === 'p2p') {
+        changeVideoBtn.style.display = 'block';
+    }
+
     if (document.documentElement.requestFullscreen) {
         document.documentElement.requestFullscreen().catch(e=>{});
     }
@@ -633,17 +650,55 @@ function updateVideoStyle() {
     videoPlayer.style.top = videoOffsetY + 'px';
 }
 
-// Запобігаємо спливанню кліків з панелі керування, щоб кнопки працювали чітко
+// Запобігаємо спливанню подій на панелі керування
 playerControls.addEventListener('click', (e) => {
     e.stopPropagation();
 });
 
-// Натискання на екран (окрім кнопок) — ховає/показує панель керування
-playerScreen.addEventListener('click', () => {
+// Жести та тапи на екрані (свайп вертикально для гучності, тап — для показу/приховування панелі)
+let touchStartY = 0;
+let initialVolume = 1.0;
+let hasMoved = false;
+
+playerScreen.addEventListener('touchstart', (e) => {
+    if (e.target.closest('#playerControls')) return;
+    if (e.touches.length === 1) {
+        touchStartY = e.touches[0].clientY;
+        initialVolume = videoPlayer.volume;
+        hasMoved = false;
+    }
+}, {passive: true});
+
+playerScreen.addEventListener('touchmove', (e) => {
+    if (e.target.closest('#playerControls')) return;
+    if (e.touches.length === 1) {
+        const currentY = e.touches[0].clientY;
+        const diffY = touchStartY - currentY; // Позитивне значення при русі вгору
+        
+        if (Math.abs(diffY) > 15) {
+            hasMoved = true;
+            const deltaVol = diffY / 200; // Чутливість свайпу
+            videoPlayer.volume = Math.max(0, Math.min(1, initialVolume + deltaVol));
+        }
+    }
+}, {passive: true});
+
+playerScreen.addEventListener('touchend', (e) => {
+    if (e.target.closest('#playerControls')) return;
+    if (!hasMoved) {
+        // Якщо палець майже не рухався — це простий тап, перемикаємо панель
+        playerControls.classList.toggle('fade-out');
+    }
+});
+
+// Для миші на ПК або альтернативних кліків
+playerScreen.addEventListener('click', (e) => {
+    if (e.target.closest('#playerControls')) return;
+    // На десктопі клік також ховає/показує панель
     playerControls.classList.toggle('fade-out');
 });
 
-playPauseBtn.addEventListener('click', () => {
+function togglePlayPause() {
     if (videoPlayer.paused) {
         videoPlayer.play().catch(e=>{});
         playPauseBtn.textContent = '❚❚ Пауза';
@@ -653,28 +708,40 @@ playPauseBtn.addEventListener('click', () => {
         playPauseBtn.textContent = '▶ Грати';
         if (conn && conn.open) conn.send(JSON.stringify({ type: 'pause' }));
     }
+}
+
+playPauseBtn.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    togglePlayPause();
 });
 
-restartBtn.addEventListener('click', () => {
+restartBtn.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
     videoPlayer.currentTime = 0;
     videoPlayer.play().catch(e=>{});
     playPauseBtn.textContent = '❚❚ Пауза';
     if (conn && conn.open) conn.send(JSON.stringify({ type: 'seek', time: 0 }));
 });
 
-syncTimeBtn.addEventListener('click', () => {
+syncTimeBtn.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
     if (conn && conn.open) conn.send(JSON.stringify({ type: 'seek', time: videoPlayer.currentTime }));
 });
 
-muteBtn.addEventListener('click', () => {
-    videoPlayer.muted = !videoPlayer.muted;
-    muteBtn.textContent = videoPlayer.muted ? '🔇 Без звуку' : '🔊 Звук';
-    muteBtn.style.backgroundColor = videoPlayer.muted ? '#d32f2f' : '#009688';
-});
-
-fullscreenBtn.addEventListener('click', () => {
+fullscreenBtn.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
     if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e=>{});
     else document.exitFullscreen().catch(e=>{});
+});
+
+changeVideoBtn.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    dynamicVideoInput.click();
 });
 
 videoSeek.addEventListener('input', () => {
