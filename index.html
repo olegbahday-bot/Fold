@@ -262,7 +262,7 @@ input[type="range"].video-seek {
 
     <div id="clientSection" class="hidden">
         <label for="clientCodeInput">Введіть 5-значний код з головного телефону:</label>
-        <input type="text" id="clientCodeInput" maxlength="5" placeholder="12345">
+        <input type="text" id="clientCodeInput" maxlength="5" placeholder="12345" autocomplete="off">
         <button id="connectClientBtn">Підключитися та запустити</button>
     </div>
 
@@ -435,7 +435,6 @@ function updateUIState() {
     } else {
         hostSection.classList.add('hidden');
         clientSection.classList.remove('hidden');
-        // Для клієнта вибір режиму блокується або синхронізується з хостом
         modeButtons.forEach(btn => btn.classList.add('locked'));
         
         if (currentMode === 'stream' || currentMode === 'p2p') {
@@ -449,7 +448,7 @@ function updateUIState() {
 
 modeButtons.forEach(btn => {
     btn.addEventListener('click', () => {
-        if (roleSelect.value === 'client') return; // Клієнт не може змінювати вручну до підключення
+        if (roleSelect.value === 'client') return;
         modeButtons.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentMode = btn.getAttribute('data-mode');
@@ -520,13 +519,12 @@ async function sendFileToClient(file) {
         mime: file.type
     }));
 
-    const CHUNK_SIZE = 32 * 1024; // 32 KB для стабільності на мобільних
+    const CHUNK_SIZE = 32 * 1024;
     let offset = 0;
 
     while (offset < file.size) {
         if (!conn || !conn.open) break;
 
-        // Контроль буфера WebRTC, щоб уникнути переповнення та зависань
         if (conn.dataChannel && conn.dataChannel.bufferedAmount > 256 * 1024) {
             await new Promise(resolve => setTimeout(resolve, 50));
             continue;
@@ -612,7 +610,6 @@ connectClientBtn.addEventListener('click', () => {
             setupConnection();
         });
 
-        // Слухаємо потік для режиму стрімінгу
         peer.on('call', (call) => {
             call.answer();
             currentCall = call;
@@ -649,7 +646,6 @@ function setupConnection() {
         connectionStatus.textContent = 'Статус: Успішно підключено!';
         sendScreenInfo();
 
-        // Якщо ми хост, надсилаємо поточний режим клієнту
         if (isHost && conn && conn.open) {
             conn.send(JSON.stringify({ type: 'sync_mode', mode: currentMode }));
         }
@@ -705,7 +701,6 @@ function setupConnection() {
 
     conn.on('data', (data) => {
         try {
-            // Обробка бінарних чанків файлу (Режим 3 P2P)
             if (data instanceof ArrayBuffer) {
                 if (incomingFileMeta) {
                     incomingChunks.push(data);
@@ -723,10 +718,12 @@ function setupConnection() {
                         videoPlayer.addEventListener('loadedmetadata', () => {
                             durationText.textContent = formatTime(videoPlayer.duration);
                             videoSeek.max = videoPlayer.duration;
+                            currentTimeText.textContent = "0:00";
+                            connectionStatus.textContent = 'Статус: Файл отримано!';
                             
-                            videoPlayer.play().then(() => {
-                                playPauseBtn.textContent = '❚❚ Пауза';
-                            }).catch(e => {});
+                            // Готуємо кнопку для ручного старту (обхід обмежень автозапуску браузера)
+                            playPauseBtn.textContent = '▶ Запустити відео';
+                            playPauseBtn.style.backgroundColor = '#FF9800';
                         }, { once: true });
 
                         incomingFileMeta = null;
@@ -770,10 +767,12 @@ function setupConnection() {
                 videoPlayer.playbackRate = 1.0;
                 videoPlayer.play().catch(e => {});
                 playPauseBtn.textContent = '❚❚ Пауза';
+                playPauseBtn.style.backgroundColor = '#2196F3';
             } else if (msg.type === 'pause') {
                 videoPlayer.playbackRate = 1.0;
                 videoPlayer.pause();
                 playPauseBtn.textContent = '▶ Грати';
+                playPauseBtn.style.backgroundColor = '#2196F3';
             } else if (msg.type === 'restart') {
                 videoPlayer.playbackRate = 1.0;
                 if (!videoPlayer.srcObject) {
@@ -783,6 +782,7 @@ function setupConnection() {
                 currentTimeText.textContent = "0:00";
                 videoPlayer.play().catch(e => {});
                 playPauseBtn.textContent = '❚❚ Пауза';
+                playPauseBtn.style.backgroundColor = '#2196F3';
             } else if (msg.type === 'seek') {
                 videoPlayer.playbackRate = 1.0;
                 if (!videoPlayer.srcObject) {
@@ -949,13 +949,16 @@ playerScreen.addEventListener('touchend', (e) => {
 playPauseBtn.addEventListener('click', () => {
     if (videoPlayer.paused) {
         videoPlayer.playbackRate = 1.0;
-        videoPlayer.play().catch(e => {});
-        playPauseBtn.textContent = '❚❚ Пауза';
+        videoPlayer.play().then(() => {
+            playPauseBtn.textContent = '❚❚ Пауза';
+            playPauseBtn.style.backgroundColor = '#2196F3';
+        }).catch(e => {});
         if (conn && conn.open) conn.send(JSON.stringify({ type: 'play' }));
     } else {
         videoPlayer.playbackRate = 1.0;
         videoPlayer.pause();
         playPauseBtn.textContent = '▶ Грати';
+        playPauseBtn.style.backgroundColor = '#2196F3';
         if (conn && conn.open) conn.send(JSON.stringify({ type: 'pause' }));
     }
 });
