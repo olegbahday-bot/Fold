@@ -88,7 +88,6 @@ video.vid-el {
     left: 0;
     object-fit: fill;
     pointer-events: none;
-    /* М'яка компенсація блідості при стрімі */
     filter: contrast(1.05) saturate(1.10);
 }
 
@@ -453,7 +452,7 @@ newVideoInput.addEventListener('change', (e) => {
                         currentCall = peer.call(conn.peer, localStream);
                     }
                 }, 200);
-                conn.send(JSON.stringify({ type: 'restart' }));
+                conn.send(JSON.stringify({ type: 'new_video', duration: videoPlayer.duration }));
             }
         }).catch(err => {
             console.log("Помилка автоплею при зміні відео:", err);
@@ -578,6 +577,12 @@ function setupConnection() {
                     localStream = videoPlayer.mozCaptureStream();
                     currentCall = peer.call(conn.peer, localStream);
                 }
+                // Передаємо тривалість клієнту одразу при підключенні
+                setTimeout(() => {
+                    if (conn && conn.open && videoPlayer.duration) {
+                        conn.send(JSON.stringify({ type: 'duration', duration: videoPlayer.duration }));
+                    }
+                }, 500);
             }
 
             if (!videoPlayer.srcObject) {
@@ -614,6 +619,15 @@ function setupConnection() {
                 partnerHeight = msg.height;
                 updateVideoStyle();
                 sendScreenInfo();
+            } else if (msg.type === 'duration' || msg.type === 'new_video') {
+                if (msg.duration) {
+                    videoSeek.max = msg.duration;
+                    durationText.textContent = formatTime(msg.duration);
+                }
+                if (msg.type === 'new_video') {
+                    videoSeek.value = 0;
+                    currentTimeText.textContent = "0:00";
+                }
             } else if (msg.type === 'play') {
                 videoPlayer.playbackRate = 1.0;
                 videoPlayer.play().catch(e => {});
@@ -627,17 +641,26 @@ function setupConnection() {
                 if (!videoPlayer.srcObject) {
                     videoPlayer.currentTime = 0;
                 }
+                videoSeek.value = 0;
+                currentTimeText.textContent = "0:00";
                 videoPlayer.play().catch(e => {});
                 playPauseBtn.textContent = '❚❚ Пауза';
             } else if (msg.type === 'seek') {
                 videoPlayer.playbackRate = 1.0;
                 if (!videoPlayer.srcObject) {
                     videoPlayer.currentTime = msg.time;
-                    videoSeek.value = msg.time;
-                    currentTimeText.textContent = formatTime(msg.time);
                 }
-            } else if (msg.type === 'sync_time' && !isHost && !isSeeking && !videoPlayer.srcObject) {
-                if (!videoPlayer.paused) {
+                videoSeek.value = msg.time;
+                currentTimeText.textContent = formatTime(msg.time);
+            } else if (msg.type === 'sync_time') {
+                if (videoPlayer.srcObject) {
+                    // Якщо це клієнт у режимі stream — оновлюємо таймлайн з синхронізації головного
+                    if (!isSeeking) {
+                        videoSeek.value = msg.time;
+                        currentTimeText.textContent = formatTime(msg.time);
+                    }
+                } else if (!isHost && !isSeeking) {
+                    // Клієнт у локальному режимі
                     const diff = videoPlayer.currentTime - msg.time;
                     if (Math.abs(diff) > 1.0) {
                         videoPlayer.currentTime = msg.time;
@@ -671,6 +694,10 @@ videoPlayer.addEventListener('loadedmetadata', () => {
     updateVideoStyle();
     durationText.textContent = formatTime(videoPlayer.duration);
     videoSeek.max = videoPlayer.duration;
+
+    if (isHost && conn && conn.open) {
+        conn.send(JSON.stringify({ type: 'duration', duration: videoPlayer.duration }));
+    }
 });
 
 videoPlayer.addEventListener('timeupdate', () => {
@@ -690,8 +717,12 @@ videoSeek.addEventListener('input', () => {
 videoSeek.addEventListener('change', () => {
     isSeeking = false;
     const newTime = parseFloat(videoSeek.value);
-    videoPlayer.currentTime = newTime;
-    videoPlayer.playbackRate = 1.0;
+    
+    if (!videoPlayer.srcObject) {
+        videoPlayer.currentTime = newTime;
+        videoPlayer.playbackRate = 1.0;
+    }
+    
     if (conn && conn.open) {
         conn.send(JSON.stringify({ type: 'seek', time: newTime }));
     }
@@ -816,6 +847,8 @@ restartBtn.addEventListener('click', () => {
 
     if (mode === 'stream' && isHost) {
         videoPlayer.currentTime = 0;
+        videoSeek.value = 0;
+        currentTimeText.textContent = "0:00";
         videoPlayer.play().catch(e => {});
         playPauseBtn.textContent = '❚❚ Пауза';
         if (conn && conn.open) {
@@ -835,6 +868,8 @@ restartBtn.addEventListener('click', () => {
         if (!videoPlayer.srcObject) {
             videoPlayer.currentTime = 0;
         }
+        videoSeek.value = 0;
+        currentTimeText.textContent = "0:00";
         videoPlayer.play().catch(e => {});
         playPauseBtn.textContent = '❚❚ Пауза';
         if (conn && conn.open) conn.send(JSON.stringify({ type: 'restart' }));
