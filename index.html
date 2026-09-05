@@ -628,9 +628,9 @@ function setupConnection() {
     });
 }
 
-function sendFileToClientBinary(file, isMidStream = false) {
+async function sendFileToClientBinary(file, isMidStream = false) {
     requestWakeLock();
-    const CHUNK_SIZE = 64 * 1024;
+    const CHUNK_SIZE = 512 * 1024; // Збільшено блок до 512 КБ для максимальної швидкості
     let offset = 0;
 
     conn.send(JSON.stringify({
@@ -640,39 +640,38 @@ function sendFileToClientBinary(file, isMidStream = false) {
         mime: file.type
     }));
 
-    function readNextChunk() {
+    while (offset < file.size) {
+        if (!conn || !conn.open) break;
         requestWakeLock();
-        const slice = file.slice(offset, offset + CHUNK_SIZE);
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            if (!conn || !conn.open) return;
-            conn.send(e.target.result);
-            offset += slice.size;
-            
-            const percent = Math.round((offset / file.size) * 100);
-            const statusText = isMidStream ? `Відправка нового файлу: ${percent}%` : `Відправка файлу: ${percent}%`;
-            
-            if (isMidStream) {
-                showPlayerStatus(statusText);
-            } else {
-                connectionStatus.textContent = statusText;
-            }
 
-            if (offset < file.size) {
-                setTimeout(readNextChunk, 1);
-            } else {
-                const finalStatus = isMidStream ? 'Файл передано! Очікування клієнта...' : 'Статус: Файл передано! Очікування клієнта...';
-                if (isMidStream) {
-                    showPlayerStatus(finalStatus);
-                } else {
-                    connectionStatus.textContent = finalStatus;
-                }
-            }
-        };
-        reader.readAsArrayBuffer(slice);
+        // Контроль буфера WebRTC, щоб канал не переповнювався
+        const dc = conn.dataChannel;
+        while (dc && dc.bufferedAmount > 16 * 1024 * 1024) {
+            await new Promise(resolve => setTimeout(resolve, 30));
+            if (!conn || !conn.open) return;
+        }
+
+        const chunk = file.slice(offset, offset + CHUNK_SIZE);
+        const arrayBuffer = await chunk.arrayBuffer();
+        conn.send(arrayBuffer);
+
+        offset += chunk.size;
+        const percent = Math.min(100, Math.round((offset / file.size) * 100));
+        const statusText = isMidStream ? `Відправка нового файлу: ${percent}%` : `Відправка файлу: ${percent}%`;
+
+        if (isMidStream) {
+            showPlayerStatus(statusText);
+        } else {
+            connectionStatus.textContent = statusText;
+        }
     }
 
-    setTimeout(readNextChunk, 200);
+    const finalStatus = isMidStream ? 'Файл передано! Очікування клієнта...' : 'Статус: Файл передано! Очікування клієнта...';
+    if (isMidStream) {
+        showPlayerStatus(finalStatus);
+    } else {
+        connectionStatus.textContent = finalStatus;
+    }
 }
 
 function enterPlayerMode(autoPlay = false) {
