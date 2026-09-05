@@ -296,6 +296,7 @@ let selectedFileObject = null;
 let incomingFileMeta = null;
 let incomingBase64Chunks = [];
 let receivedBytes = 0;
+let clientIsReady = false;
 
 let videoOffsetX = 0;
 let videoOffsetY = 0;
@@ -433,13 +434,16 @@ function startPeer(myId, connectId) {
 
 function setupConnection() {
     conn.on('open', () => {
-        connectionStatus.textContent = 'Статус: З\'єднано! Підготовка до передачі...';
+        connectionStatus.textContent = 'Статус: З\'єднано! Синхронізація...';
         
         if (isHost) {
             conn.send(JSON.stringify({ type: 'sync_mode', mode: currentMode }));
-            if (currentMode === 'p2p' && selectedFileObject) {
-                sendFileToClientBase64(selectedFileObject);
-            }
+        } else {
+            // Клієнт повідомляє, що він повністю готовий отримувати файл
+            setTimeout(() => {
+                conn.send(JSON.stringify({ type: 'client_ready' }));
+                connectionStatus.textContent = 'Статус: Очікування файлу від головного телефону...';
+            }, 300);
         }
     });
 
@@ -447,7 +451,13 @@ function setupConnection() {
         try {
             const msg = typeof rawdata === 'string' ? JSON.parse(rawdata) : rawdata;
             
-            if (msg.type === 'file_meta') {
+            if (msg.type === 'client_ready' && isHost) {
+                clientIsReady = true;
+                connectionStatus.textContent = 'Статус: Клієнт готовий. Початок передачі файлу...';
+                if (currentMode === 'p2p' && selectedFileObject) {
+                    setTimeout(() => sendFileToClientBase64(selectedFileObject), 300);
+                }
+            } else if (msg.type === 'file_meta') {
                 incomingFileMeta = msg;
                 incomingBase64Chunks = [];
                 receivedBytes = 0;
@@ -503,7 +513,7 @@ function setupConnection() {
 }
 
 function sendFileToClientBase64(file) {
-    const CHUNK_SIZE = 32768; // 32KB чанки для ідеальної стабільності через JSON
+    const CHUNK_SIZE = 16384; // Зменшено до 16KB для абсолютної стабільності на мобільних
     let offset = 0;
 
     conn.send(JSON.stringify({
@@ -528,7 +538,8 @@ function sendFileToClientBase64(file) {
             connectionStatus.textContent = `Відправка файлу: ${percent}%`;
 
             if (offset < file.size) {
-                readNextChunk();
+                // Невеличка пауза (5мс) між чанками, щоб не перевантажувати буфер WebRTC
+                setTimeout(readNextChunk, 5);
             } else {
                 connectionStatus.textContent = 'Статус: Файл передано! Очікування запуску...';
                 setTimeout(() => {
@@ -539,7 +550,7 @@ function sendFileToClientBase64(file) {
         reader.readAsDataURL(slice);
     }
 
-    readNextChunk();
+    setTimeout(readNextChunk, 200);
 }
 
 function enterPlayerMode() {
