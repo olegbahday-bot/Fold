@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ScreenParty Tri-Mode</title>
+<title>ScreenParty P2P</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
 <style>
 body {
@@ -73,7 +73,6 @@ button:hover { background: #45a049; }
     display: inline-block;
 }
 
-/* Екран плеєра */
 #playerScreen {
     position: fixed;
     top: 0; left: 0;
@@ -93,7 +92,6 @@ video.vid-el {
     filter: contrast(1.05) saturate(1.10);
 }
 
-/* Індикатор гучності */
 .volume-indicator {
     position: absolute;
     top: 50%;
@@ -114,7 +112,6 @@ video.vid-el {
     opacity: 0;
 }
 
-/* Панель керування */
 .controls {
     position: absolute;
     bottom: 8px;
@@ -183,7 +180,6 @@ input[type="range"].video-seek {
     cursor: pointer;
     background: transparent;
 }
-
 .status {
     font-size: 12px;
     margin-top: 10px;
@@ -193,15 +189,14 @@ input[type="range"].video-seek {
 </head>
 <body>
 
-<!-- Налаштування та підключення -->
 <div class="card" id="setupCard">
-    <h2>ScreenParty Tri-Mode</h2>
+    <h2>ScreenParty P2P</h2>
 
     <label style="color: #4CAF50; font-weight: bold;">Режим роботи:</label>
     <select id="modeSelect" style="border: 2px solid #4CAF50;">
-        <option value="stream_simple">1. Трансляція відео (стрім на інший телефон)</option>
-        <option value="stream_split">2. Стрім на два екрани (розподіл потоку)</option>
-        <option value="local_split">3. Локальні файли на обох (розподіл + синхронізація)</option>
+        <option value="stream_simple">1. Трансляція з одного телефона на інший</option>
+        <option value="local_split">2. Локальні файли на обох (поділ екрана)</option>
+        <option value="stream_split">3. P2P стрім з поділом екрана</option>
     </select>
 
     <label>Роль пристрою:</label>
@@ -213,12 +208,11 @@ input[type="range"].video-seek {
     <div id="positionContainer">
         <label>Позиція екрана:</label>
         <select id="positionSelect">
-            <option value="left">Ліва частина (поруч зліва)</option>
-            <option value="right">Права частина (поруч справа)</option>
+            <option value="left">Ліва частина</option>
+            <option value="right">Права частина</option>
         </select>
     </div>
 
-    <!-- Вибір відеофайлу -->
     <div id="videoPickerContainer">
         <label id="videoLabel">Виберіть відеофайл:</label>
         <input type="file" id="videoInput" accept="video/*">
@@ -233,7 +227,7 @@ input[type="range"].video-seek {
     </div>
 
     <div id="clientSection" class="hidden">
-        <label for="clientCodeInput">Введіть 5-значний код з головного телефону:</label>
+        <label for="clientCodeInput">Введіть 5-значний код:</label>
         <input type="text" id="clientCodeInput" maxlength="5" placeholder="12345">
         <button id="connectClientBtn">Підключитися та запустити</button>
     </div>
@@ -241,7 +235,6 @@ input[type="range"].video-seek {
     <div class="status" id="connectionStatus">Статус: Очікування налаштування</div>
 </div>
 
-<!-- Екран відеоплеєра -->
 <div id="playerScreen">
     <video id="videoPlayer" class="vid-el" playsinline></video>
     <div id="volumeIndicator" class="volume-indicator hidden">🔊 100%</div>
@@ -250,7 +243,6 @@ input[type="range"].video-seek {
     <div class="controls" id="playerControls">
         <div style="font-size: 10px; text-align: center; color: #ddd; font-weight: bold; margin-bottom: 2px;">Керування та калібрування</div>
         
-        <!-- Таймлайн / повзунок часу -->
         <div class="timeline-container" id="timelineContainer">
             <div class="time-labels">
                 <span id="currentTimeText">0:00</span>
@@ -464,9 +456,7 @@ newVideoInput.addEventListener('change', (e) => {
                 }
                 conn.send(JSON.stringify({ type: 'restart' }));
             }
-        }).catch(err => {
-            console.log("Помилка автоплею при зміні відео:", err);
-        });
+        }).catch(err => {});
     }
 });
 
@@ -475,9 +465,7 @@ function generateRandomCode() {
 }
 
 startHostBtn.addEventListener('click', () => {
-    const mode = modeSelect.value;
     if (!localVideoBlobUrl) { alert('Виберіть відеофайл!'); return; }
-
     requestFullscreenNow();
     isHost = true;
     startHostPeer();
@@ -758,7 +746,6 @@ if (window.visualViewport) {
 
 playerScreen.addEventListener('touchstart', (e) => {
     if (playerControls.contains(e.target)) return;
-    
     if (e.touches.length === 1) {
         touchStartY = e.touches[0].clientY;
         touchStartX = e.touches[0].clientX;
@@ -769,7 +756,6 @@ playerScreen.addEventListener('touchstart', (e) => {
 
 playerScreen.addEventListener('touchmove', (e) => {
     if (playerControls.contains(e.target)) return;
-
     if (e.touches.length === 1) {
         const currentY = e.touches[0].clientY;
         const currentX = e.touches[0].clientX;
@@ -879,7 +865,6 @@ function applyScale(ds) {
 }
 
 document.getElementById('playerSaveBtn').addEventListener('click', saveSettings);
-
 document.getElementById('shiftUpBtn').addEventListener('click', () => applyShift(0, -4));
 document.getElementById('shiftDownBtn').addEventListener('click', () => applyShift(0, 4));
 document.getElementById('shiftLeftBtn').addEventListener('click', () => applyShift(-4, 0));
