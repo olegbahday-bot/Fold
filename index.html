@@ -393,11 +393,12 @@ updateUIState();
 function handleSelectedFile(file) {
     if (file) {
         selectedFileObject = file;
+        videoPlayer.pause();
+        if (localVideoBlobUrl) URL.revokeObjectURL(localVideoBlobUrl);
         localVideoBlobUrl = URL.createObjectURL(file);
         videoPlayer.src = localVideoBlobUrl;
-        connectionStatus.textContent = 'Статус: Файл завантажено на головному телефоні';
+        videoPlayer.load();
         
-        // Якщо ми вже в плеєрі і ми хост (в режимі p2p)
         if (playerScreen.style.display === 'block' && isHost && currentMode === 'p2p' && conn && conn.open) {
             sendFileToClientBase64(file);
         }
@@ -409,10 +410,7 @@ videoInput.addEventListener('change', (e) => {
 });
 
 dynamicVideoInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file) {
-        handleSelectedFile(file);
-    }
+    handleSelectedFile(e.target.files[0]);
 });
 
 startHostBtn.addEventListener('click', () => {
@@ -480,7 +478,6 @@ function setupConnection() {
             
             if (msg.type === 'client_ready' && isHost) {
                 clientIsReady = true;
-                connectionStatus.textContent = 'Статус: Клієнт готовий. Початок передачі файлу...';
                 if (currentMode === 'p2p' && selectedFileObject) {
                     setTimeout(() => sendFileToClientBase64(selectedFileObject), 300);
                 }
@@ -488,6 +485,9 @@ function setupConnection() {
                 incomingFileMeta = msg;
                 incomingBase64Chunks = [];
                 receivedBytes = 0;
+                // Миттєво зупиняємо та очищаємо старе відео на клієнті, щоб воно не висіло
+                videoPlayer.pause();
+                videoPlayer.src = "";
             } else if (msg.type === 'file_chunk') {
                 incomingBase64Chunks.push(msg.data);
                 const b64 = msg.data.includes(',') ? msg.data.split(',')[1] : msg.data;
@@ -507,6 +507,7 @@ function setupConnection() {
                         return bytes;
                     });
                     const blob = new Blob(byteArrays, { type: incomingFileMeta.mime });
+                    if (localVideoBlobUrl) URL.revokeObjectURL(localVideoBlobUrl);
                     localVideoBlobUrl = URL.createObjectURL(blob);
                     videoPlayer.src = localVideoBlobUrl;
                     videoPlayer.load();
@@ -587,7 +588,6 @@ function enterPlayerMode(autoPlay = false) {
     setupCard.style.display = 'none';
     playerScreen.style.display = 'block';
     
-    // Показуємо кнопку зміни відео тільки для Голова (або загально в p2p)
     if (isHost && currentMode === 'p2p') {
         changeVideoBtn.style.display = 'block';
     }
@@ -650,12 +650,10 @@ function updateVideoStyle() {
     videoPlayer.style.top = videoOffsetY + 'px';
 }
 
-// Запобігаємо спливанню подій на панелі керування
 playerControls.addEventListener('click', (e) => {
     e.stopPropagation();
 });
 
-// Жести та тапи на екрані (свайп вертикально для гучності, тап — для показу/приховування панелі)
 let touchStartY = 0;
 let initialVolume = 1.0;
 let hasMoved = false;
@@ -673,11 +671,11 @@ playerScreen.addEventListener('touchmove', (e) => {
     if (e.target.closest('#playerControls')) return;
     if (e.touches.length === 1) {
         const currentY = e.touches[0].clientY;
-        const diffY = touchStartY - currentY; // Позитивне значення при русі вгору
+        const diffY = touchStartY - currentY;
         
         if (Math.abs(diffY) > 15) {
             hasMoved = true;
-            const deltaVol = diffY / 200; // Чутливість свайпу
+            const deltaVol = diffY / 200;
             videoPlayer.volume = Math.max(0, Math.min(1, initialVolume + deltaVol));
         }
     }
@@ -686,15 +684,12 @@ playerScreen.addEventListener('touchmove', (e) => {
 playerScreen.addEventListener('touchend', (e) => {
     if (e.target.closest('#playerControls')) return;
     if (!hasMoved) {
-        // Якщо палець майже не рухався — це простий тап, перемикаємо панель
         playerControls.classList.toggle('fade-out');
     }
 });
 
-// Для миші на ПК або альтернативних кліків
 playerScreen.addEventListener('click', (e) => {
     if (e.target.closest('#playerControls')) return;
-    // На десктопі клік також ховає/показує панель
     playerControls.classList.toggle('fade-out');
 });
 
