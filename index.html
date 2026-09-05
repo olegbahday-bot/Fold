@@ -511,17 +511,35 @@ function setupConnection() {
                     updateVideoStyle();
                 } else if (msg.type === 'play') { 
                     if (msg.time !== undefined) videoPlayer.currentTime = msg.time;
+                    videoPlayer.playbackRate = 1.0;
                     videoPlayer.play().catch(e=>{}); 
                     playPauseBtn.textContent = '❚❚ Пауза';
                     if (playerScreen.style.display !== 'block') enterPlayerMode(true);
                 } else if (msg.type === 'pause') { 
                     videoPlayer.pause(); 
+                    videoPlayer.playbackRate = 1.0;
                     playPauseBtn.textContent = '▶ Грати';
                 } else if (msg.type === 'seek') { 
-                    videoPlayer.currentTime = msg.time; 
+                    videoPlayer.currentTime = msg.time;
+                    videoPlayer.playbackRate = 1.0;
                 } else if (msg.type === 'sync_time') {
-                    if (!isHost && !isSeeking && Math.abs(videoPlayer.currentTime - msg.time) > 0.2) {
-                        videoPlayer.currentTime = msg.time;
+                    // Плавна синхронізація без ривків через playbackRate
+                    if (!isHost && !isSeeking && !videoPlayer.paused) {
+                        const diff = msg.time - videoPlayer.currentTime;
+                        if (Math.abs(diff) > 1.5) {
+                            // Якщо розбіжність велика — виконуємо м'який перехід часу
+                            videoPlayer.currentTime = msg.time;
+                            videoPlayer.playbackRate = 1.0;
+                        } else if (diff > 0.08) {
+                            // Клієнт відстає — ледь-ледь прискорюємося
+                            videoPlayer.playbackRate = 1.04;
+                        } else if (diff < -0.08) {
+                            // Клієнт випереджає — ледь-ледь уповільнюємося
+                            videoPlayer.playbackRate = 0.96;
+                        } else {
+                            // Ідеально синхронно
+                            videoPlayer.playbackRate = 1.0;
+                        }
                     }
                 }
             } else {
@@ -614,11 +632,12 @@ function enterPlayerMode(autoPlay = false) {
 
     if (isHost) {
         if (syncInterval) clearInterval(syncInterval);
+        // Збільшуємо інтервал синхронізації до 1000мс (1 секунда) для зменшення навантаження мережі
         syncInterval = setInterval(() => {
             if (conn && conn.open && !videoPlayer.paused) {
                 conn.send(JSON.stringify({ type: 'sync_time', time: videoPlayer.currentTime }));
             }
-        }, 400);
+        }, 1000);
     }
 }
 
@@ -697,10 +716,12 @@ playerScreen.addEventListener('click', (e) => {
 function togglePlayPause() {
     if (videoPlayer.paused) {
         videoPlayer.play().catch(e=>{});
+        videoPlayer.playbackRate = 1.0;
         playPauseBtn.textContent = '❚❚ Пауза';
         if (conn && conn.open) conn.send(JSON.stringify({ type: 'play', time: videoPlayer.currentTime }));
     } else {
         videoPlayer.pause();
+        videoPlayer.playbackRate = 1.0;
         playPauseBtn.textContent = '▶ Грати';
         if (conn && conn.open) conn.send(JSON.stringify({ type: 'pause' }));
     }
@@ -716,6 +737,7 @@ restartBtn.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
     e.preventDefault();
     videoPlayer.currentTime = 0;
+    videoPlayer.playbackRate = 1.0;
     videoPlayer.play().catch(e=>{});
     playPauseBtn.textContent = '❚❚ Пауза';
     if (conn && conn.open) conn.send(JSON.stringify({ type: 'seek', time: 0 }));
@@ -724,6 +746,7 @@ restartBtn.addEventListener('pointerdown', (e) => {
 syncTimeBtn.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
     e.preventDefault();
+    videoPlayer.playbackRate = 1.0;
     if (conn && conn.open) conn.send(JSON.stringify({ type: 'seek', time: videoPlayer.currentTime }));
 });
 
@@ -748,6 +771,7 @@ videoSeek.addEventListener('input', () => {
 
 videoSeek.addEventListener('change', () => {
     isSeeking = false;
+    videoPlayer.playbackRate = 1.0;
     if (conn && conn.open) conn.send(JSON.stringify({ type: 'seek', time: videoPlayer.currentTime }));
 });
 
