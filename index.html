@@ -469,6 +469,7 @@ function setupConnection() {
                 partnerWidth = msg.width;
                 updateVideoStyle();
             } else if (msg.type === 'play') { 
+                if (msg.time !== undefined) videoPlayer.currentTime = msg.time;
                 videoPlayer.play().catch(e=>{}); 
                 playPauseBtn.textContent = '❚❚ Пауза';
             } else if (msg.type === 'pause') { 
@@ -477,7 +478,8 @@ function setupConnection() {
             } else if (msg.type === 'seek') { 
                 videoPlayer.currentTime = msg.time; 
             } else if (msg.type === 'sync_time') {
-                if (!isHost && !isSeeking && Math.abs(videoPlayer.currentTime - msg.time) > 1.0) {
+                // Суворий поріг розсинхронізації: більше 0.3 секунди — підтягуємо час
+                if (!isHost && !isSeeking && Math.abs(videoPlayer.currentTime - msg.time) > 0.3) {
                     videoPlayer.currentTime = msg.time;
                 }
             }
@@ -535,6 +537,8 @@ function enterPlayerMode() {
     }
 
     updateVideoStyle();
+    
+    // Клієнт при вході в режим плеєра одразу бере поточний час хоста, якщо той уже грає
     videoPlayer.play().then(() => {
         playPauseBtn.textContent = '❚❚ Пауза';
     }).catch(e => {
@@ -543,15 +547,18 @@ function enterPlayerMode() {
 
     if (conn && conn.open) {
         conn.send(JSON.stringify({ type: 'screen_info', width: window.innerWidth }));
+        // Надсилаємо поточний час при старті плеєра для ідеального зчеплення
+        conn.send(JSON.stringify({ type: 'sync_time', time: videoPlayer.currentTime }));
     }
 
     if (isHost) {
         if (syncInterval) clearInterval(syncInterval);
+        // Частіша перевірка синхронізації — кожні 500 мс
         syncInterval = setInterval(() => {
             if (conn && conn.open && !videoPlayer.paused) {
                 conn.send(JSON.stringify({ type: 'sync_time', time: videoPlayer.currentTime }));
             }
-        }, 1000);
+        }, 500);
     }
 }
 
@@ -588,7 +595,8 @@ playPauseBtn.addEventListener('click', () => {
     if (videoPlayer.paused) {
         videoPlayer.play().catch(e=>{});
         playPauseBtn.textContent = '❚❚ Пауза';
-        if (conn && conn.open) conn.send(JSON.stringify({ type: 'play' }));
+        // Передаємо також поточний час при натисканні Play
+        if (conn && conn.open) conn.send(JSON.stringify({ type: 'play', time: videoPlayer.currentTime }));
     } else {
         videoPlayer.pause();
         playPauseBtn.textContent = '▶ Грати';
@@ -600,6 +608,7 @@ playerScreen.addEventListener('click', () => {
     if (videoPlayer.paused) {
         videoPlayer.play().catch(e=>{});
         playPauseBtn.textContent = '❚❚ Пауза';
+        if (conn && conn.open) conn.send(JSON.stringify({ type: 'play', time: videoPlayer.currentTime }));
     }
 });
 
