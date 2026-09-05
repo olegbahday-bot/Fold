@@ -127,12 +127,14 @@ video.vid-el {
 }
 .controls button:hover { background: #45a049; }
 .btn-full { grid-column: span 3; }
+.btn-half { grid-column: span 2; }
 .reset-btn { background-color: #444; }
 .action-btn { background-color: #2196F3; }
 .scale-btn { background-color: #E91E63; }
 .fullscreen-btn { background-color: #FF9800; }
 .save-btn { background-color: #FF5722; }
 .file-btn { background-color: #607D8B; }
+.sync-btn { background-color: #9C27B0; }
 
 .timeline-container {
     width: 100%;
@@ -220,10 +222,12 @@ input[type="range"].video-seek {
 
         <div class="controls-grid">
             <button id="playPauseBtn" class="action-btn">▶ Грати</button>
-            <button id="restartBtn" class="action-btn">↺ З початку</button>
+            <button id="syncTimeBtn" class="sync-btn">⚡ Синхроніз.</button>
             <button id="fullscreenBtn" class="fullscreen-btn">⛶ Екран</button>
 
-            <button id="changeVideoBtn" class="file-btn btn-full">📁 Вибрати інше відео</button>
+            <button id="restartBtn" class="action-btn">↺ З початку</button>
+            <button id="changeVideoBtn" class="file-btn btn-half">📁 Інше відео</button>
+
             <button id="playerSaveBtn" class="save-btn btn-full">💾 Зберегти калібрування</button>
 
             <button id="scalePlusBtn" class="scale-btn">🔍 Збільшити (+)</button>
@@ -265,6 +269,7 @@ const connectClientBtn = document.getElementById('connectClientBtn');
 const playPauseBtn = document.getElementById('playPauseBtn');
 const restartBtn = document.getElementById('restartBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
+const syncTimeBtn = document.getElementById('syncTimeBtn');
 
 const videoSeek = document.getElementById('videoSeek');
 const currentTimeText = document.getElementById('currentTimeText');
@@ -470,12 +475,11 @@ function setupConnection() {
                             time: videoPlayer.currentTime
                         }));
                     }
-                }, 1000); // Зменшено до 1 секунди для кращої чутливості
+                }, 1000);
             }
         }, 300);
     };
 
-    // Надійна перевірка стану відкриття з'єднання (вирішує проблему пропущеної події open на хості)
     if (conn.open) {
         initConnection();
     } else {
@@ -571,6 +575,7 @@ videoSeek.addEventListener('change', () => {
 
 function updateVideoStyle() {
     const myWidth = window.innerWidth;
+    // Якщо розмір партнера ще не прийшов, беремо ширину власного екрана для правильного пристикування одразу
     const pWidth = partnerWidth > 0 ? partnerWidth : myWidth;
     const position = positionSelect.value;
     const videoAspect = (videoPlayer.videoWidth && videoPlayer.videoHeight)
@@ -583,8 +588,10 @@ function updateVideoStyle() {
 
     let leftPos = 0;
     if (position === 'left') {
+        // Пристикування до лівого краю екрана
         leftPos = videoOffsetX;
     } else {
+        // Пристикування для правого екрана (зміщення вліво на ширину лівого пристрою)
         leftPos = videoOffsetX - pWidth * videoScaleMultiplier;
     }
 
@@ -616,6 +623,24 @@ playPauseBtn.addEventListener('click', () => {
         videoPlayer.pause();
         playPauseBtn.textContent = '▶ Грати';
         if (conn && conn.open) conn.send(JSON.stringify({ type: 'pause' }));
+    }
+});
+
+// Кнопка ручної синхронізації часу
+syncTimeBtn.addEventListener('click', () => {
+    const currentTime = videoPlayer.currentTime;
+    videoPlayer.playbackRate = 1.0;
+    if (conn && conn.open) {
+        conn.send(JSON.stringify({ type: 'seek', time: currentTime }));
+        const origText = syncTimeBtn.textContent;
+        syncTimeBtn.textContent = '✔ Ок';
+        syncTimeBtn.style.backgroundColor = '#4CAF50';
+        setTimeout(() => {
+            syncTimeBtn.textContent = origText;
+            syncTimeBtn.style.backgroundColor = '#9C27B0';
+        }, 1000);
+    } else {
+        alert("Немає активного з'єднання!");
     }
 });
 
