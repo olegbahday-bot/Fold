@@ -385,6 +385,7 @@ const changeVideoBtn = document.getElementById('changeVideoBtn');
 
 let peer = null;
 let conn = null;
+let activeCall = null;
 let isHost = false;
 let localVideoBlobUrl = null;
 let audioCtx = null;
@@ -419,12 +420,6 @@ let touchStartX = 0;
 let touchStartVolume = 1.0;
 let hasSwiped = false;
 let volumeTimeout = null;
-
-let streamingCanvas = document.createElement('canvas');
-streamingCanvas.style.display = 'none';
-document.body.appendChild(streamingCanvas);
-let streamingCtx = streamingCanvas.getContext('2d', { alpha: false });
-let animationFrameId = null;
 
 if ('mediaSession' in navigator) {
 navigator.mediaSession.metadata = new MediaMetadata({
@@ -637,10 +632,6 @@ setupConnection();
 
 peer.on('call', (call) => {
 call.answer();
-if (videoModeSelect.value === 'stream') {
-const stream = streamingCanvas.captureStream(30);
-call.answer(stream);
-}
 });
 
 peer.on('error', (err) => {
@@ -719,39 +710,17 @@ videoMode: videoModeSelect.value
 function startStreaming() {
 if (!isHost || videoModeSelect.value !== 'stream') return;
 try {
-const videoWidth = videoPlayer.videoWidth || 1280;
-const videoHeight = videoPlayer.videoHeight || 720;
-
-let targetWidth = videoWidth;
-let targetHeight = videoHeight;
-const maxW = 1280;
-const maxH = 720;
-
-if (videoWidth > maxW || videoHeight > maxH) {
-const ratio = Math.min(maxW / videoWidth, maxH / videoHeight);
-targetWidth = Math.round(videoWidth * ratio);
-targetHeight = Math.round(videoHeight * ratio);
+let stream = null;
+if (videoPlayer.captureStream) {
+stream = videoPlayer.captureStream();
+} else if (videoPlayer.mozCaptureStream) {
+stream = videoPlayer.mozCaptureStream();
 }
-
-streamingCanvas.width = targetWidth;
-streamingCanvas.height = targetHeight;
-
-if (animationFrameId) cancelAnimationFrame(animationFrameId);
-
-function drawFrame() {
-if (videoModeSelect.value === 'stream' && streamingCtx) {
-try {
-streamingCtx.drawImage(videoPlayer, 0, 0, targetWidth, targetHeight);
-} catch (e) {}
-}
-animationFrameId = requestAnimationFrame(drawFrame);
-}
-drawFrame();
-
-let stream = streamingCanvas.captureStream(30);
 
 if (stream && conn && conn.open) {
-peer.call(conn.peer, stream);
+if (!activeCall) {
+activeCall = peer.call(conn.peer, stream);
+}
 }
 } catch (e) {}
 }
@@ -774,14 +743,16 @@ playerScreen.style.display = 'block';
 preventScreenSleep();
 updateVideoStyle();
 
+if (videoModeSelect.value === 'local') {
 videoPlayer.currentTime = 0;
 videoPlayer.pause();
 playPauseBtn.textContent = '▶ Грати';
+}
 
 if (isHost) {
 if (syncInterval) clearInterval(syncInterval);
 syncInterval = setInterval(() => {
-if (conn && conn.open && !videoPlayer.paused) {
+if (conn && conn.open && !videoPlayer.paused && videoModeSelect.value === 'local') {
 conn.send(JSON.stringify({
 type: 'sync_time',
 time: videoPlayer.currentTime
@@ -823,9 +794,11 @@ playPauseBtn.textContent = '❚❚ Пауза';
 if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
 if (isHost && videoModeSelect.value === 'stream') startStreaming();
 } else if (msg.type === 'seek') {
+if (!videoPlayer.srcObject) {
 videoPlayer.currentTime = msg.time;
+}
 videoPlayer.playbackRate = 1.0;
-} else if (msg.type === 'sync_time' && !isHost) {
+} else if (msg.type === 'sync_time' && !isHost && videoModeSelect.value === 'local') {
 if (!videoPlayer.paused && !isDraggingTimeline) {
 const diff = videoPlayer.currentTime - msg.time;
 if (Math.abs(diff) > 1.0) {
@@ -855,10 +828,12 @@ if (!document.hidden) {
 preventScreenSleep();
 if (conn && conn.open) {
 if (isHost) {
+if (videoModeSelect.value === 'local') {
 conn.send(JSON.stringify({
 type: 'sync_time',
 time: videoPlayer.currentTime
 }));
+}
 if (videoModeSelect.value === 'stream') {
 startStreaming();
 }
@@ -992,7 +967,7 @@ return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
 }
 
 videoPlayer.addEventListener('timeupdate', () => {
-if (!isDraggingTimeline && videoPlayer.duration) {
+if (!isDraggingTimeline && videoPlayer.duration && !videoPlayer.srcObject) {
 const progress = (videoPlayer.currentTime / videoPlayer.duration) * 100;
 timelineRange.value = progress;
 timeDisplay.textContent = `${formatTime(videoPlayer.currentTime)} / ${formatTime(videoPlayer.duration)}`;
@@ -1029,7 +1004,7 @@ activateNoSleep();
 preventScreenSleep();
 if (playerControls.contains(e.target)) return;
 if (e.touches.length === 1) {
-isSwinputValue = true;
+isSwipingVolume = true;
 touchStartY = e.touches[0].clientY;
 touchStartX = e.touches[0].clientX;
 touchStartVolume = videoPlayer.volume;
