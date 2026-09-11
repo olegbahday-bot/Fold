@@ -74,7 +74,7 @@ margin-top: 8px;
 display: inline-block;
 }
 
-/* Екран калібрування (викликається кнопкою) */
+/* Екран калібрування */
 #calibrationScreen {
 position: fixed;
 top: 0; left: 0;
@@ -386,6 +386,7 @@ let peer = null;
 let conn = null;
 let isHost = false;
 let localVideoBlobUrl = null;
+let wakeLock = null;
 
 let videoOffsetX = 0;
 let videoOffsetY = 0;
@@ -402,6 +403,27 @@ let touchStartX = 0;
 let touchStartVolume = 1.0;
 let hasSwiped = false;
 let volumeTimeout = null;
+
+// Функція запобігання засинанню екрана (Wake Lock)
+async function requestWakeLock() {
+try {
+if ('wakeLock' in navigator) {
+wakeLock = await navigator.wakeLock.request('screen');
+wakeLock.addEventListener('release', () => {
+wakeLock = null;
+});
+}
+} catch (err) {
+console.error(`${err.name}, ${err.message}`);
+}
+}
+
+// Автоматичне відновлення блокування екрана, якщо вкладка знову стала активною
+document.addEventListener('visibilitychange', async () => {
+if (wakeLock !== null && document.visibilityState === 'visible') {
+await requestWakeLock();
+}
+});
 
 function loadSavedSettings() {
 const savedScale = localStorage.getItem('sp_scale');
@@ -450,13 +472,8 @@ const mode = videoModeSelect.value;
 if (role === 'host') {
 hostSection.classList.remove('hidden');
 clientSection.classList.add('hidden');
-if (mode === 'stream') {
 fileInputContainer.style.display = 'block';
 changeVideoBtn.style.display = 'block';
-} else {
-fileInputContainer.style.display = 'block';
-changeVideoBtn.style.display = 'block';
-}
 } else {
 hostSection.classList.add('hidden');
 clientSection.classList.remove('hidden');
@@ -612,6 +629,7 @@ videoPlayer.srcObject = remoteStream;
 videoPlayer.play().catch(e => {});
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
+requestWakeLock(); // Активуємо заборону сну для клієнта
 updateVideoStyle();
 playPauseBtn.textContent = '▶ Грати';
 });
@@ -668,6 +686,7 @@ sendVideoStream();
 setTimeout(() => {
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
+requestWakeLock(); // Активуємо заборону сну при підключенні
 updateVideoStyle();
 
 if (videoModeSelect.value === 'local' || isHost) {
