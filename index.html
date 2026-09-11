@@ -262,7 +262,7 @@ color: #888;
 </select>
 
 <div id="fileInputContainer">
-<label>Виберіть відеофайл (потрібно лише для Головного):</label>
+<label>Виберіть відеофайл (потрібно для Головного):</label>
 <input type="file" id="videoInput" accept="video/*">
 </div>
 
@@ -550,6 +550,7 @@ const file = e.target.files[0];
 if (file) {
 localVideoBlobUrl = URL.createObjectURL(file);
 videoPlayer.src = localVideoBlobUrl;
+connectionStatus.textContent = 'Статус: Відеофайл завантажено. Готово до створення кімнати.';
 }
 });
 
@@ -581,7 +582,11 @@ return Math.floor(10000 + Math.random() * 90000).toString();
 }
 
 startHostBtn.addEventListener('click', () => {
-if (!localVideoBlobUrl) { alert('Виберіть відеофайл на головному телефоні!'); return; }
+if (!localVideoBlobUrl) {
+alert('Спочатку виберіть відеофайл на головному телефоні!');
+connectionStatus.textContent = 'Статус: Помилка — не вибрано відеофайл';
+return;
+}
 requestFullscreenNow();
 preventScreenSleep();
 isHost = true;
@@ -589,15 +594,23 @@ startHostPeer();
 });
 
 function startHostPeer() {
+// Попереднє очищення старого з'єднання, якщо воно було
+if (peer) {
+try { peer.destroy(); } catch (e) {}
+peer = null;
+}
+
 const code = generateRandomCode();
 connectionStatus.textContent = 'Статус: Створення кімнати...';
 
-peer = new Peer('sp-' + code);
+peer = new Peer('sp-' + code, {
+debug: 1
+});
 
 peer.on('open', () => {
 hostCodeDisplay.textContent = code;
 codeContainer.classList.remove('hidden');
-connectionStatus.textContent = 'Статус: Очікування підключення другого телефону...';
+connectionStatus.textContent = 'Статус: Кімнату створено! Очікування другого телефону...';
 });
 
 peer.on('connection', (connection) => {
@@ -615,25 +628,36 @@ sendVideoStream(call);
 peer.on('error', (err) => {
 if (err.type === 'unavailable-id') {
 peer.destroy();
-startHostPeer();
+startHostPeer(); // Спробувати з іншим кодом
 } else {
-connectionStatus.textContent = 'Помилка: ' + err.type;
+connectionStatus.textContent = 'Помилка мережі: ' + err.type;
 }
 });
 }
 
 connectClientBtn.addEventListener('click', () => {
 const mode = videoModeSelect.value;
-if (mode === 'local' && !localVideoBlobUrl) { alert('Виберіть відеофайл!'); return; }
+if (mode === 'local' && !localVideoBlobUrl) { 
+alert('Виберіть відеофайл!'); 
+return; 
+}
 const code = clientCodeInput.value.trim();
-if (code.length !== 5) { alert('Введіть 5-значний код!'); return; }
+if (code.length !== 5) { 
+alert('Введіть 5-значний код!'); 
+return; 
+}
+
+if (peer) {
+try { peer.destroy(); } catch (e) {}
+peer = null;
+}
 
 requestFullscreenNow();
 preventScreenSleep();
 isHost = false;
 connectionStatus.textContent = 'Статус: Підключення до кімнати...';
 
-peer = new Peer();
+peer = new Peer({ debug: 1 });
 
 peer.on('open', () => {
 conn = peer.connect('sp-' + code);
@@ -653,8 +677,8 @@ playPauseBtn.textContent = '▶ Грати';
 });
 });
 
-peer.on('error', () => {
-connectionStatus.textContent = 'Помилка підключення. Перевірте код.';
+peer.on('error', (err) => {
+connectionStatus.textContent = 'Помилка підключення: ' + err.type + '. Перевірте код.';
 });
 });
 
@@ -1043,6 +1067,7 @@ saveSettings();
 });
 
 document.getElementById('calibShiftUp').addEventListener('click', () => applyShift(0, -4));
+document.getElementById('calibShiftDown').addEventListener('click', () => applyScale ? applyShift(0, 4) : null); // fixed logic mapping below
 document.getElementById('calibShiftDown').addEventListener('click', () => applyShift(0, 4));
 document.getElementById('calibShiftLeft').addEventListener('click', () => applyShift(-4, 0));
 document.getElementById('calibShiftRight').addEventListener('click', () => applyShift(4, 0));
