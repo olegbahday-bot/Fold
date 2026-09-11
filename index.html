@@ -396,6 +396,11 @@ function activateNoSleep() {
     if (!noSleepActive) {
         noSleep.enable().then(() => {
             noSleepActive = true;
+            // Запобігаємо випадковому запуску основного відео через активацію NoSleep
+            if (isHost || videoPlayer.src) {
+                videoPlayer.pause();
+                playPauseBtn.textContent = '▶ Грати';
+            }
         }).catch(err => {});
     }
 }
@@ -873,6 +878,7 @@ saveSettings();
 
 videoPlayer.addEventListener('loadedmetadata', () => {
 updateVideoStyle();
+videoPlayer.pause(); // Примусово ставимо на паузу при завантаженні метаданих
 });
 
 function updateVideoStyle() {
