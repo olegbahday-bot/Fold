@@ -315,7 +315,7 @@ color: #888;
 
 <!-- Екран відеоплеєра -->
 <div id="playerScreen">
-<video id="videoPlayer" class="vid-el" playsinline autoplay muted></video>
+<video id="videoPlayer" class="vid-el" playsinline autoplay></video>
 <div id="volumeIndicator">🔊 100%</div>
 <input type="file" id="newVideoInput" accept="video/*" style="display: none;">
 
@@ -412,10 +412,6 @@ function activateNoSleep() {
     if (!noSleepActive) {
         noSleep.enable().then(() => {
             noSleepActive = true;
-            if (isHost || (videoPlayer.src && videoModeSelect.value === 'local')) {
-                videoPlayer.pause();
-                playPauseBtn.textContent = '▶ Грати';
-            }
         }).catch(err => {});
     }
 }
@@ -689,6 +685,8 @@ call.answer();
 call.on('stream', (remoteStream) => {
 videoPlayer.srcObject = remoteStream;
 videoPlayer.muted = false;
+remoteStream.getAudioTracks().forEach(track => { track.enabled = true; });
+
 videoPlayer.play().then(() => {
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
@@ -702,7 +700,7 @@ setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
 preventScreenSleep();
 updateVideoStyle();
-playPauseBtn.textContent = '❚❚ Пауза (без звуку)';
+playPauseBtn.textContent = '❚❚ Пауза (натисніть для звуку)';
 });
 });
 });
@@ -758,10 +756,12 @@ updateVideoStyle();
 if (isHost) {
 videoPlayer.currentTime = 0;
 if (videoModeSelect.value === 'stream') {
+videoPlayer.muted = false;
 videoPlayer.play().catch(e => {});
 playPauseBtn.textContent = '❚❚ Пауза';
 startStreaming();
 } else {
+videoPlayer.muted = false;
 videoPlayer.pause();
 playPauseBtn.textContent = '▶ Грати';
 }
@@ -779,7 +779,6 @@ time: videoPlayer.currentTime
 }, 300);
 };
 
-// Захист від втрати події open, якщо з'єднання вже відкрите (особливо на хості)
 if (conn.open) {
 handleConnectionReady();
 } else {
@@ -972,6 +971,13 @@ fullscreenBtn.textContent = '⛶ Екран';
 playerScreen.addEventListener('click', (e) => {
 activateNoSleep();
 preventScreenSleep();
+
+// Увімкнути звук при торканні, якщо браузер заблокував його раніше
+if (videoPlayer.muted) {
+videoPlayer.muted = false;
+videoPlayer.play().catch(e => {});
+}
+
 if (hasSwiped) {
 hasSwiped = false;
 return;
@@ -1024,6 +1030,12 @@ timelineRange.addEventListener('touchend', () => { isDraggingTimeline = false; }
 playerScreen.addEventListener('touchstart', (e) => {
 activateNoSleep();
 preventScreenSleep();
+
+if (videoPlayer.muted) {
+videoPlayer.muted = false;
+videoPlayer.play().catch(e => {});
+}
+
 if (playerControls.contains(e.target)) return;
 if (e.touches.length === 1) {
 isSwipingVolume = true;
