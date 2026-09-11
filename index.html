@@ -324,14 +324,13 @@ color: #888;
 
 <div style="font-size: 10px; text-align: center; color: #ddd; font-weight: bold; margin-bottom: 2px;">Керування та калібрування</div>
 <div class="controls-grid">
-<!-- Основні кнопки керування зверху -->
 <button id="playPauseBtn" class="action-btn">▶ Грати</button>
 <button id="restartBtn" class="action-btn">↺ З початку</button>
 <button id="fullscreenBtn" class="fullscreen-btn">⛶ Екран</button>
 
 <button id="changeVideoBtn" class="file-btn btn-full">📁 Вибрати інше відео</button>
 
-<!-- Кнопки калібрування зміщені нижче, щоб не натискати випадково -->
+<!-- Кнопка калібрування внизу для безпеки від випадкових натискань -->
 <button id="openCalibOverlayBtn" class="calib-open-btn btn-full">📐 Калібрування Full HD рамки</button>
 <button id="playerSaveBtn" class="save-btn btn-full">💾 Зберегти калібрування</button>
 
@@ -414,9 +413,16 @@ const savedX = localStorage.getItem('sp_offsetX');
 const savedY = localStorage.getItem('sp_offsetY');
 const savedPos = localStorage.getItem('sp_position');
 
-if (savedScale !== null) videoScaleMultiplier = parseFloat(savedScale);
-if (savedX !== null) videoOffsetX = parseFloat(savedX);
-if (savedY !== null) videoOffsetY = parseFloat(savedY);
+if (savedScale !== null && !isNaN(parseFloat(savedScale))) {
+videoScaleMultiplier = Math.max(0.1, Math.min(5.0, parseFloat(savedScale)));
+}
+if (savedX !== null && !isNaN(parseFloat(savedX))) {
+// Захист від занадто сильного зсуву, який ховає відео за екран
+videoOffsetX = Math.max(-3000, Math.min(3000, parseFloat(savedX)));
+}
+if (savedY !== null && !isNaN(parseFloat(savedY))) {
+videoOffsetY = Math.max(-3000, Math.min(3000, parseFloat(savedY)));
+}
 if (savedPos === 'left' || savedPos === 'right') {
 positionSelect.value = savedPos;
 }
@@ -475,7 +481,6 @@ else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
 }
 }
 
-// Синхронізоване відкриття калібрування на обох телефонах
 openCalibOverlayBtn.addEventListener('click', () => {
 playerScreen.style.display = 'none';
 calibrationScreen.style.display = 'block';
@@ -485,7 +490,6 @@ conn.send(JSON.stringify({ type: 'open_calib' }));
 }
 });
 
-// Закриття калібрування зі збереженням та передачею поточного стану відтворення
 closeCalibBtn.addEventListener('click', () => {
 saveSettings();
 calibrationScreen.style.display = 'none';
