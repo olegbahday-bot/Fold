@@ -71,6 +71,41 @@ margin-top: 8px;
 display: inline-block;
 }
 
+/* Екран калібрування */
+#calibrationScreen {
+position: fixed;
+top: 0; left: 0;
+width: 100vw; height: 100vh;
+background: #000;
+overflow: hidden;
+display: none;
+z-index: 150;
+}
+.calib-box {
+position: absolute;
+border: 2px dashed #4CAF50;
+box-sizing: border-box;
+display: flex;
+justify-content: center;
+align-items: center;
+background: rgba(76, 175, 80, 0.05);
+}
+.calib-circle {
+width: 100px;
+height: 100px;
+border: 3px solid #FFEB3B;
+border-radius: 50%;
+box-sizing: border-box;
+display: flex;
+justify-content: center;
+align-items: center;
+color: #FFEB3B;
+font-size: 12px;
+font-weight: bold;
+text-align: center;
+background: rgba(255, 235, 59, 0.1);
+}
+
 /* Екран плеєра */
 #playerScreen {
 position: fixed;
@@ -192,12 +227,7 @@ width: 100%;
 .fullscreen-btn { background-color: #FF9800; }
 .save-btn { background-color: #FF5722; }
 .file-btn { background-color: #607D8B; }
-
-.status {
-font-size: 12px;
-margin-top: 10px;
-color: #888;
-}
+.calib-open-btn { background-color: #9C27B0; }
 </style>
 </head>
 <body>
@@ -229,6 +259,8 @@ color: #888;
 <input type="file" id="videoInput" accept="video/*">
 </div>
 
+<button id="openCalibrationBtn" class="calib-open-btn">📐 Калібрування екрана</button>
+
 <div id="hostSection">
 <button id="startHostBtn">Створити кімнату та запустити</button>
 <div id="codeContainer" class="hidden">
@@ -244,6 +276,31 @@ color: #888;
 </div>
 
 <div class="status" id="connectionStatus">Статус: Очікування налаштування</div>
+</div>
+
+<!-- Екран калібрування -->
+<div id="calibrationScreen">
+<div id="calibBox" class="calib-box">
+<div class="calib-circle">Full HD<br>Центр</div>
+</div>
+<div class="controls">
+<div style="font-size: 11px; text-align: center; color: #FFEB3B; font-weight: bold; margin-bottom: 2px;">Режим калібрування Full HD рамки</div>
+<div class="controls-grid">
+<button id="calibScalePlus" class="scale-btn">🔍 Збільшити (+)</button>
+<button id="calibReset" class="reset-btn">Скидання</button>
+<button id="calibScaleMinus" class="scale-btn">🔍 Зменшити (-)</button>
+
+<button id="calibShiftLeft">◄ Ліворуч</button>
+<button id="calibShiftUp">▲ Вгору</button>
+<button id="calibShiftRight">Праворуч ►</button>
+
+<button class="reset-btn" style="visibility: hidden;"></button>
+<button id="calibShiftDown">▼ Вниз</button>
+<button class="reset-btn" style="visibility: hidden;"></button>
+
+<button id="closeCalibBtn" class="save-btn btn-full">✔ Зберегти та повернутися</button>
+</div>
+</div>
 </div>
 
 <!-- Екран відеоплеєра -->
@@ -289,6 +346,8 @@ color: #888;
 <script>
 const setupCard = document.getElementById('setupCard');
 const playerScreen = document.getElementById('playerScreen');
+const calibrationScreen = document.getElementById('calibrationScreen');
+const calibBox = document.getElementById('calibBox');
 const videoPlayer = document.getElementById('videoPlayer');
 const playerControls = document.getElementById('playerControls');
 const newVideoInput = document.getElementById('newVideoInput');
@@ -301,6 +360,9 @@ const videoInput = document.getElementById('videoInput');
 const hostSection = document.getElementById('hostSection');
 const clientSection = document.getElementById('clientSection');
 const connectionStatus = document.getElementById('connectionStatus');
+
+const openCalibrationBtn = document.getElementById('openCalibrationBtn');
+const closeCalibBtn = document.getElementById('closeCalibBtn');
 
 const startHostBtn = document.getElementById('startHostBtn');
 const codeContainer = document.getElementById('codeContainer');
@@ -403,6 +465,39 @@ if (!document.fullscreenElement && !document.webkitFullscreenElement) {
 if (elem.requestFullscreen) elem.requestFullscreen().catch(e => {});
 else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
 }
+}
+
+// Калібрування
+openCalibrationBtn.addEventListener('click', () => {
+requestFullscreenNow();
+setupCard.style.display = 'none';
+calibrationScreen.style.display = 'block';
+updateCalibrationStyle();
+});
+
+closeCalibBtn.addEventListener('click', () => {
+saveSettings();
+calibrationScreen.style.display = 'none';
+setupCard.style.display = 'block';
+});
+
+function updateCalibrationStyle() {
+const myWidth = window.innerWidth;
+const pWidth = partnerWidth > 0 ? partnerWidth : myWidth;
+const position = positionSelect.value;
+const videoAspect = 16 / 9; // Full HD пропорція
+
+const combinedWidth = myWidth + pWidth;
+const finalWidth = combinedWidth * videoScaleMultiplier;
+const finalHeight = finalWidth / videoAspect;
+
+let leftPos = (position === 'left') ? videoOffsetX : (videoOffsetX - pWidth);
+let topPos = videoOffsetY;
+
+calibBox.style.width = finalWidth + 'px';
+calibBox.style.height = finalHeight + 'px';
+calibBox.style.left = leftPos + 'px';
+calibBox.style.top = topPos + 'px';
 }
 
 videoInput.addEventListener('change', (e) => {
@@ -592,6 +687,7 @@ videoModeSelect.value = msg.videoMode;
 updateInputsVisibility();
 }
 updateVideoStyle();
+updateCalibrationStyle();
 sendScreenInfo();
 } else if (msg.type === 'play') {
 videoPlayer.playbackRate = 1.0;
@@ -634,13 +730,10 @@ location.reload();
 });
 }
 
-// Автоматичне відновлення та синхронізація при розблокуванні або повертанні в додаток
 document.addEventListener('visibilitychange', () => {
 if (!document.hidden) {
-console.log("Додаток активовано знову, перевірка з'єднання...");
 if (conn && conn.open) {
 if (isHost) {
-// Якщо хост повернувся, одразу відправляємо актуальний час
 conn.send(JSON.stringify({
 type: 'sync_time',
 time: videoPlayer.currentTime
@@ -649,13 +742,11 @@ if (videoModeSelect.value === 'stream') {
 sendVideoStream();
 }
 } else {
-// Якщо клієнт повернувся, робимо так, щоб відео не було на паузі якщо грає
 if (videoPlayer.paused && !videoPlayer.ended) {
 videoPlayer.play().catch(e => {});
 }
 }
 } else {
-// Якщо з'єднання відпало в фоні — намагаємося перепідключитися або оновити статус
 connectionStatus.textContent = "Статус: З'єднання втрачено у фоні. Перезавантажте сторінку.";
 }
 }
@@ -664,6 +755,7 @@ connectionStatus.textContent = "Статус: З'єднання втрачено
 positionSelect.addEventListener('change', () => {
 sendScreenInfo();
 updateVideoStyle();
+updateCalibrationStyle();
 saveSettings();
 });
 
@@ -700,9 +792,15 @@ videoPlayer.style.left = leftPos + 'px';
 videoPlayer.style.top = topPos + 'px';
 }
 
-window.addEventListener('resize', updateVideoStyle);
+window.addEventListener('resize', () => {
+updateVideoStyle();
+updateCalibrationStyle();
+});
 if (window.visualViewport) {
-window.visualViewport.addEventListener('resize', updateVideoStyle);
+window.visualViewport.addEventListener('resize', () => {
+updateVideoStyle();
+updateCalibrationStyle();
+});
 }
 
 playPauseBtn.addEventListener('click', () => {
@@ -812,7 +910,7 @@ hasSwiped = false;
 playerScreen.addEventListener('touchmove', (e) => {
 if (!isSwipingVolume || e.touches.length !== 1) return;
 const currentY = e.touches[0].clientY;
-const currentX = e.touches.clientX || e.touches[0].clientX;
+const currentX = e.touches[0].clientX;
 const diffY = touchStartY - currentY;
 const diffX = touchStartX - currentX;
 
@@ -853,17 +951,20 @@ function applyShift(dx, dy) {
 videoOffsetX += dx;
 videoOffsetY += dy;
 updateVideoStyle();
+updateCalibrationStyle();
 saveSettings();
 }
 
 function applyScale(ds) {
 videoScaleMultiplier = Math.max(0.1, Math.min(5.0, videoScaleMultiplier + ds));
 updateVideoStyle();
+updateCalibrationStyle();
 saveSettings();
 }
 
 document.getElementById('playerSaveBtn').addEventListener('click', saveSettings);
 
+// Управління для звичайного плеєра
 document.getElementById('shiftUpBtn').addEventListener('click', () => applyShift(0, -4));
 document.getElementById('shiftDownBtn').addEventListener('click', () => applyShift(0, 4));
 document.getElementById('shiftLeftBtn').addEventListener('click', () => applyShift(-4, 0));
@@ -875,6 +976,23 @@ videoOffsetX = 0;
 videoOffsetY = 0;
 videoScaleMultiplier = 1.0;
 updateVideoStyle();
+updateCalibrationStyle();
+saveSettings();
+});
+
+// Управління для екрана калібрування
+document.getElementById('calibShiftUp').addEventListener('click', () => applyShift(0, -4));
+document.getElementById('calibShiftDown').addEventListener('click', () => applyShift(0, 4));
+document.getElementById('calibShiftLeft').addEventListener('click', () => applyShift(-4, 0));
+document.getElementById('calibShiftRight').addEventListener('click', () => applyShift(4, 0));
+document.getElementById('calibScalePlus').addEventListener('click', () => applyScale(0.02));
+document.getElementById('calibScaleMinus').addEventListener('click', () => applyScale(-0.02));
+document.getElementById('calibReset').addEventListener('click', () => {
+videoOffsetX = 0;
+videoOffsetY = 0;
+videoScaleMultiplier = 1.0;
+updateVideoStyle();
+updateCalibrationStyle();
 saveSettings();
 });
 </script>
