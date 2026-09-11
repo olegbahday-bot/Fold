@@ -311,7 +311,7 @@ color: #888;
 
 <!-- Екран відеоплеєра -->
 <div id="playerScreen">
-<video id="videoPlayer" class="vid-el" playsinline autoplay></video>
+<video id="videoPlayer" class="vid-el" playsinline></video>
 <div id="volumeIndicator">🔊 100%</div>
 <input type="file" id="newVideoInput" accept="video/*" style="display: none;">
 
@@ -389,7 +389,6 @@ let isHost = false;
 let localVideoBlobUrl = null;
 let audioCtx = null;
 
-// Ініціалізація NoSleep для гарантованого блокування сну екрана
 let noSleep = new NoSleep();
 let noSleepActive = false;
 
@@ -421,7 +420,6 @@ let streamingCanvas = document.createElement('canvas');
 let streamingCtx = streamingCanvas.getContext('2d');
 let animationFrameId = null;
 
-// Медіа-сесія для ОС
 if ('mediaSession' in navigator) {
 navigator.mediaSession.metadata = new MediaMetadata({
 title: 'ScreenParty Sync P2P',
@@ -448,7 +446,7 @@ audioCtx.resume();
 } catch (e) {}
 
 if ('mediaSession' in navigator) {
-navigator.mediaSession.playbackState = 'playing';
+navigator.mediaSession.playbackState = 'paused';
 }
 }
 
@@ -564,6 +562,7 @@ const file = e.target.files[0];
 if (file) {
 localVideoBlobUrl = URL.createObjectURL(file);
 videoPlayer.src = localVideoBlobUrl;
+videoPlayer.pause();
 connectionStatus.textContent = 'Статус: Відеофайл завантажено. Готово до створення кімнати.';
 }
 });
@@ -769,11 +768,9 @@ playerScreen.style.display = 'block';
 preventScreenSleep();
 updateVideoStyle();
 
-if (videoModeSelect.value === 'local' || isHost) {
 videoPlayer.currentTime = 0;
 videoPlayer.pause();
 playPauseBtn.textContent = '▶ Грати';
-}
 
 if (isHost) {
 if (syncInterval) clearInterval(syncInterval);
