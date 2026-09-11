@@ -311,7 +311,7 @@ color: #888;
 
 <!-- Екран відеоплеєра -->
 <div id="playerScreen">
-<video id="videoPlayer" class="vid-el" playsinline></video>
+<video id="videoPlayer" class="vid-el" playsinline autoplay muted></video>
 <div id="volumeIndicator">🔊 100%</div>
 <input type="file" id="newVideoInput" accept="video/*" style="display: none;">
 
@@ -393,11 +393,23 @@ let audioCtx = null;
 let noSleep = new NoSleep();
 let noSleepActive = false;
 
+// Надійні STUN-сервери для обходу NAT на мобільному інтернеті
+const peerOptions = {
+    debug: 1,
+    config: {
+        'iceServers': [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
+        ]
+    }
+};
+
 function activateNoSleep() {
     if (!noSleepActive) {
         noSleep.enable().then(() => {
             noSleepActive = true;
-            if (isHost || videoPlayer.src) {
+            if (isHost || (videoPlayer.src && videoModeSelect.value === 'local')) {
                 videoPlayer.pause();
                 playPauseBtn.textContent = '▶ Грати';
             }
@@ -445,10 +457,6 @@ if (audioCtx.state === 'suspended') {
 audioCtx.resume();
 }
 } catch (e) {}
-
-if ('mediaSession' in navigator) {
-navigator.mediaSession.playbackState = 'paused';
-}
 }
 
 document.addEventListener('click', activateNoSleep, { once: true });
@@ -617,7 +625,7 @@ peer = null;
 const code = generateRandomCode();
 connectionStatus.textContent = 'Статус: Створення кімнати...';
 
-peer = new Peer('sp-' + code, { debug: 1 });
+peer = new Peer('sp-' + code, peerOptions);
 
 peer.on('open', () => {
 hostCodeDisplay.textContent = code;
@@ -667,7 +675,7 @@ preventScreenSleep();
 isHost = false;
 connectionStatus.textContent = 'Статус: Підключення до кімнати...';
 
-peer = new Peer({ debug: 1 });
+peer = new Peer(peerOptions);
 
 peer.on('open', () => {
 conn = peer.connect('sp-' + code);
@@ -678,15 +686,24 @@ peer.on('call', (call) => {
 call.answer();
 call.on('stream', (remoteStream) => {
 videoPlayer.srcObject = remoteStream;
-videoPlayer.play().catch(e => {});
+videoPlayer.muted = false;
+videoPlayer.play().then(() => {
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
 preventScreenSleep();
 updateVideoStyle();
 playPauseBtn.textContent = '❚❚ Пауза';
-if ('mediaSession' in navigator) {
-navigator.mediaSession.playbackState = 'playing';
-}
+}).catch(err => {
+// Fallback якщо браузер блокує autoplay зі звуком
+videoPlayer.muted = true;
+videoPlayer.play().then(() => {
+setupCard.style.display = 'none';
+playerScreen.style.display = 'block';
+preventScreenSleep();
+updateVideoStyle();
+playPauseBtn.textContent = '❚❚ Пауза (без звуку)';
+});
+});
 });
 });
 
@@ -738,16 +755,15 @@ startStreaming();
 }
 
 setTimeout(() => {
+if (videoModeSelect.value === 'local') {
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
-preventScreenSleep();
-updateVideoStyle();
-
-if (videoModeSelect.value === 'local') {
 videoPlayer.currentTime = 0;
 videoPlayer.pause();
 playPauseBtn.textContent = '▶ Грати';
 }
+preventScreenSleep();
+updateVideoStyle();
 
 if (isHost) {
 if (syncInterval) clearInterval(syncInterval);
@@ -854,7 +870,7 @@ saveSettings();
 
 videoPlayer.addEventListener('loadedmetadata', () => {
 updateVideoStyle();
-videoPlayer.pause();
+if (!videoPlayer.srcObject) videoPlayer.pause();
 });
 
 function updateVideoStyle() {
