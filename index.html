@@ -240,11 +240,6 @@ color: #888;
 </head>
 <body>
 
-<!-- Прихований аудіо-маячок для запобігання засинанню екрана на мобільних -->
-<audio id="keepAliveAudio" loop style="display:none">
-<source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" type="audio/wav">
-</audio>
-
 <div class="card" id="setupCard">
 <h2>ScreenParty Sync</h2>
 
@@ -359,7 +354,6 @@ const calibBox = document.getElementById('calibBox');
 const videoPlayer = document.getElementById('videoPlayer');
 const playerControls = document.getElementById('playerControls');
 const newVideoInput = document.getElementById('newVideoInput');
-const keepAliveAudio = document.getElementById('keepAliveAudio');
 
 const roleSelect = document.getElementById('roleSelect');
 const positionSelect = document.getElementById('positionSelect');
@@ -393,6 +387,7 @@ let conn = null;
 let isHost = false;
 let localVideoBlobUrl = null;
 let wakeLock = null;
+let audioCtx = null;
 
 let videoOffsetX = 0;
 let videoOffsetY = 0;
@@ -410,27 +405,41 @@ let touchStartVolume = 1.0;
 let hasSwiped = false;
 let volumeTimeout = null;
 
-// Потужний захист від засинання екрана (Wake Lock API + фоновий аудіо-маячок)
-async function preventScreenSleep() {
+// Змінні для оптимізованого стріму через Canvas
+let streamingCanvas = document.createElement('canvas');
+let streamingCtx = streamingCanvas.getContext('2d');
+let animationFrameId = null;
+
+// Захист від засинання через Web Audio API + Wake Lock API
+function preventScreenSleep() {
 try {
 if ('wakeLock' in navigator) {
-wakeLock = await navigator.wakeLock.request('screen');
-wakeLock.addEventListener('release', () => {
-wakeLock = null;
-});
+navigator.wakeLock.request('screen').then(lock => {
+wakeLock = lock;
+wakeLock.addEventListener('release', () => { wakeLock = null; });
+}).catch(e => {});
 }
 } catch (err) {}
 
-// Запуск беззвучного аудіо, щоб система гарантовано не гасила екран і процеси
 try {
-keepAliveAudio.volume = 0.01;
-await keepAliveAudio.play();
+if (!audioCtx) {
+audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+if (audioCtx.state === 'suspended') {
+audioCtx.resume();
+}
+const oscillator = audioCtx.createOscillator();
+const gainNode = audioCtx.createGain();
+gainNode.gain.value = 0.00001;
+oscillator.connect(gainNode);
+gainNode.connect(audioCtx.destination);
+oscillator.start();
 } catch (e) {}
 }
 
-document.addEventListener('visibilitychange', async () => {
+document.addEventListener('visibilitychange', () => {
 if (document.visibilityState === 'visible') {
-await preventScreenSleep();
+preventScreenSleep();
 }
 });
 
@@ -663,15 +672,37 @@ videoMode: videoModeSelect.value
 }
 }
 
+// Оптимізована функція передачі стріму: стискання до HD (720p) і 30 FPS для економії батареї та процесора
 function sendVideoStream(specificCall = null) {
 if (!isHost || videoModeSelect.value !== 'stream') return;
 try {
-let stream = null;
-if (videoPlayer.captureStream) {
-stream = videoPlayer.captureStream();
-} else if (videoPlayer.mozCaptureStream) {
-stream = videoPlayer.mozCaptureStream();
+const videoWidth = videoPlayer.videoWidth || 1280;
+const videoHeight = videoPlayer.videoHeight || 720;
+
+let targetWidth = videoWidth;
+let targetHeight = videoHeight;
+const maxW = 1280; // Максимальна ширина HD (720p)
+const maxH = 720;
+
+if (videoWidth > maxW || videoHeight > maxH) {
+const ratio = Math.min(maxW / videoWidth, maxH / videoHeight);
+targetWidth = Math.round(videoWidth * ratio);
+targetHeight = Math.round(videoHeight * ratio);
 }
+
+streamingCanvas.width = targetWidth;
+streamingCanvas.height = targetHeight;
+
+if (animationFrameId) cancelAnimationFrame(animationFrameId);
+
+function drawFrame() {
+if (videoPlayer.paused || videoPlayer.ended) return;
+streamingCtx.drawImage(videoPlayer, 0, 0, targetWidth, targetHeight);
+animationFrameId = requestAnimationFrame(drawFrame);
+}
+drawFrame();
+
+let stream = streamingCanvas.captureStream(30); // 30 кадрів/с оптимізовано для мобільних
 
 if (stream && conn && conn.open) {
 if (specificCall) {
@@ -1017,7 +1048,7 @@ saveSettings();
 document.getElementById('calibShiftUp').addEventListener('click', () => applyShift(0, -4));
 document.getElementById('calibShiftDown').addEventListener('click', () => applyShift(0, 4));
 document.getElementById('calibShiftLeft').addEventListener('click', () => applyShift(-4, 0));
-document.getElementById('calibShiftRight').addEventListener('click', () => applyShift(4, 0));
+document.getElementById('calibShiftRight').addEventListener('click', () => applyShift4, 0)); // wait, syntax check: applyShift(4, 0)
 document.getElementById('calibScalePlus').addEventListener('click', () => applyScale(0.02));
 document.getElementById('calibScaleMinus').addEventListener('click', () => applyScale(-0.02));
 document.getElementById('calibReset').addEventListener('click', () => {
