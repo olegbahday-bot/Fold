@@ -324,13 +324,15 @@ color: #888;
 
 <div style="font-size: 10px; text-align: center; color: #ddd; font-weight: bold; margin-bottom: 2px;">Керування та калібрування</div>
 <div class="controls-grid">
-<button id="openCalibOverlayBtn" class="calib-open-btn btn-full">📐 Калібрування Full HD рамки</button>
-
+<!-- Основні кнопки керування зверху -->
 <button id="playPauseBtn" class="action-btn">▶ Грати</button>
 <button id="restartBtn" class="action-btn">↺ З початку</button>
 <button id="fullscreenBtn" class="fullscreen-btn">⛶ Екран</button>
 
 <button id="changeVideoBtn" class="file-btn btn-full">📁 Вибрати інше відео</button>
+
+<!-- Кнопки калібрування зміщені нижче, щоб не натискати випадково -->
+<button id="openCalibOverlayBtn" class="calib-open-btn btn-full">📐 Калібрування Full HD рамки</button>
 <button id="playerSaveBtn" class="save-btn btn-full">💾 Зберегти калібрування</button>
 
 <button id="scalePlusBtn" class="scale-btn">🔍 Збільшити (+)</button>
@@ -483,13 +485,19 @@ conn.send(JSON.stringify({ type: 'open_calib' }));
 }
 });
 
+// Закриття калібрування зі збереженням та передачею поточного стану відтворення
 closeCalibBtn.addEventListener('click', () => {
 saveSettings();
 calibrationScreen.style.display = 'none';
 playerScreen.style.display = 'block';
 updateVideoStyle();
+
 if (conn && conn.open) {
-conn.send(JSON.stringify({ type: 'close_calib' }));
+conn.send(JSON.stringify({ 
+type: 'close_calib',
+currentTime: videoPlayer.currentTime,
+isPlaying: !videoPlayer.paused
+}));
 }
 });
 
@@ -497,7 +505,7 @@ function updateCalibrationStyle() {
 const myWidth = window.innerWidth;
 const pWidth = partnerWidth > 0 ? partnerWidth : myWidth;
 const position = positionSelect.value;
-const videoAspect = 16 / 9; // Стандарт Full HD 16:9
+const videoAspect = 16 / 9;
 
 const combinedWidth = myWidth + pWidth;
 const finalWidth = combinedWidth * videoScaleMultiplier;
@@ -722,6 +730,16 @@ updateCalibrationStyle();
 calibrationScreen.style.display = 'none';
 playerScreen.style.display = 'block';
 updateVideoStyle();
+if (msg.currentTime !== undefined) {
+videoPlayer.currentTime = msg.currentTime;
+}
+if (msg.isPlaying) {
+videoPlayer.play().catch(e => {});
+playPauseBtn.textContent = '❚❚ Пауза';
+} else {
+videoPlayer.pause();
+playPauseBtn.textContent = '▶ Грати';
+}
 } else if (msg.type === 'update_calib') {
 videoOffsetX = msg.offsetX;
 videoOffsetY = msg.offsetY;
