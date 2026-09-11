@@ -169,17 +169,29 @@ box-sizing: border-box;
 .timeline-slider {
 flex: 1;
 -webkit-appearance: none;
+appearance: none;
 background: #444;
-height: 6px;
-border-radius: 3px;
+height: 4px;
+border-radius: 2px;
 outline: none;
+margin: 0;
+padding: 0;
+}
+.timeline-slider::-webkit-slider-runnable-track {
+height: 4px;
+background: #444;
+border-radius: 2px;
+border: none;
 }
 .timeline-slider::-webkit-slider-thumb {
 -webkit-appearance: none;
-width: 14px; height: 14px;
+appearance: none;
+width: 16px;
+height: 16px;
 border-radius: 50%;
 background: #4CAF50;
 cursor: pointer;
+margin-top: -6px;
 }
 .time-display {
 font-size: 11px;
@@ -289,7 +301,7 @@ width: 100%;
 <input type="file" id="newVideoInput" accept="video/*" style="display: none;">
 
 <div class="controls" id="playerControls">
-<div class="timeline-container">
+<div class="timeline-container" id="timelineContainer">
 <input type="range" id="timelineRange" class="timeline-slider" min="0" max="100" value="0" step="0.1">
 <div class="time-display" id="timeDisplay">00:00 / 00:00</div>
 </div>
@@ -322,6 +334,7 @@ const calibBox = document.getElementById('calibBox');
 const videoPlayer = document.getElementById('videoPlayer');
 const playerControls = document.getElementById('playerControls');
 const newVideoInput = document.getElementById('newVideoInput');
+const timelineContainer = document.getElementById('timelineContainer');
 
 const roleSelect = document.getElementById('roleSelect');
 const positionSelect = document.getElementById('positionSelect');
@@ -355,6 +368,7 @@ let isHost = false;
 let localVideoBlobUrl = null;
 let audioCtx = null;
 let silentOscillator = null;
+let wakeLock = null;
 
 const peerOptions = {
     debug: 1,
@@ -365,6 +379,17 @@ const peerOptions = {
         ]
     }
 };
+
+async function requestWakeLock() {
+    try {
+        if ('wakeLock' in navigator && !wakeLock) {
+            wakeLock = await navigator.wakeLock.request('screen');
+            wakeLock.addEventListener('release', () => {
+                wakeLock = null;
+            });
+        }
+    } catch (e) {}
+}
 
 function startAntiSleepAudio() {
     try {
@@ -384,6 +409,7 @@ function startAntiSleepAudio() {
             osc.start();
         }
     } catch (e) {}
+    requestWakeLock();
 }
 
 let videoOffsetX = 0;
@@ -484,6 +510,8 @@ videoInput.addEventListener('change', (e) => {
     if (file) {
         localVideoBlobUrl = URL.createObjectURL(file);
         videoPlayer.src = localVideoBlobUrl;
+        videoPlayer.muted = false;
+        videoPlayer.volume = 1.0;
         videoPlayer.pause();
         connectionStatus.textContent = 'Статус: Відео завантажено. Готово.';
     }
@@ -498,6 +526,8 @@ newVideoInput.addEventListener('change', (e) => {
         videoPlayer.load();
         updateVideoStyle();
         videoPlayer.currentTime = 0;
+        videoPlayer.muted = false;
+        videoPlayer.volume = 1.0;
         videoPlayer.pause();
         if (videoModeSelect.value === 'stream') setTimeout(startStreaming, 500);
     }
@@ -589,19 +619,22 @@ function setupConnection() {
             playerScreen.style.display = 'block';
             updateVideoStyle();
 
-            // Вмикаємо звук одразу при старті
             videoPlayer.muted = false;
             videoPlayer.volume = 1.0;
 
+            // Таймлайн видимий ТІЛЬКИ на Головному телефоні і лише в режимі локальних файлів
+            if (!isHost || videoModeSelect.value === 'stream' || videoPlayer.srcObject) {
+                timelineContainer.style.display = 'none';
+            } else {
+                timelineContainer.style.display = 'flex';
+            }
+
             if (isHost) {
                 videoPlayer.currentTime = 0;
+                videoPlayer.play().catch(e => {});
+                playPauseBtn.textContent = '❚❚ Пауза';
                 if (videoModeSelect.value === 'stream') {
-                    videoPlayer.play().catch(e => {});
-                    playPauseBtn.textContent = '❚❚ Пауза';
                     startStreaming();
-                } else {
-                    videoPlayer.play().catch(e => {});
-                    playPauseBtn.textContent = '❚❚ Пауза';
                 }
 
                 if (syncInterval) clearInterval(syncInterval);
@@ -673,8 +706,9 @@ function setupConnection() {
 }
 
 document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
+    if (document.visibilityState === 'visible') {
         startAntiSleepAudio();
+        requestWakeLock();
         if (conn && conn.open && isHost && videoModeSelect.value === 'stream') {
             startStreaming();
         }
@@ -728,7 +762,7 @@ restartBtn.addEventListener('click', () => {
     videoPlayer.muted = false;
     videoPlayer.currentTime = 0;
     videoPlayer.play().catch(e => {});
-    playPauseBtn.textContent = '❚❚ Пауза';
+        playPauseBtn.textContent = '❚❚ Пауза';
     if (conn) conn.send(JSON.stringify({ type: 'restart' }));
     if (isHost && videoModeSelect.value === 'stream') startStreaming();
 });
@@ -785,7 +819,6 @@ timelineRange.addEventListener('change', () => {
 timelineRange.addEventListener('mouseup', () => { isDraggingTimeline = false; });
 timelineRange.addEventListener('touchend', () => { isDraggingTimeline = false; });
 
-// Жест керування гучністю свайпом пальцем по вертикалі
 playerScreen.addEventListener('touchstart', (e) => {
     startAntiSleepAudio();
     if (playerControls.contains(e.target)) return;
@@ -844,6 +877,7 @@ document.getElementById('calibScaleMinus').addEventListener('click', () => apply
 document.getElementById('calibReset').addEventListener('click', () => { videoOffsetX = 0; videoOffsetY = 0; videoScaleMultiplier = 1.0; updateVideoStyle(); updateCalibrationStyle(); saveSettings(); });
 
 document.getElementById('shiftUpBtn').addEventListener('click', () => applyShift(0, -4));
+document.getElementById('shiftDownBtn').addEventListener('click', () => applyStr = applyShift(0, 4));
 document.getElementById('shiftDownBtn').addEventListener('click', () => applyShift(0, 4));
 document.getElementById('shiftLeftBtn').addEventListener('click', () => applyShift(-4, 0));
 document.getElementById('shiftRightBtn').addEventListener('click', () => applyShift(4, 0));
