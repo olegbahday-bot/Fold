@@ -218,8 +218,10 @@ color: #888;
 <option value="right">Права частина (поруч справа)</option>
 </select>
 
-<label>Виберіть відеофайл:</label>
+<div id="hostFileBlock">
+<label>Виберіть відеофайл (тільки для Головного):</label>
 <input type="file" id="videoInput" accept="video/*">
+</div>
 
 <div id="hostSection">
 <button id="startHostBtn">Створити кімнату та запустити</button>
@@ -230,6 +232,7 @@ color: #888;
 </div>
 
 <div id="clientSection" class="hidden">
+<div style="font-size: 12px; color: #4CAF50; margin-top: 5px; text-align: left;">ℹ️ Відео автоматично транслюватиметься з головного телефону по P2P.</div>
 <label for="clientCodeInput">Введіть 5-значний код з головного телефону:</label>
 <input type="text" id="clientCodeInput" maxlength="5" placeholder="12345">
 <button id="connectClientBtn">Підключитися та запустити</button>
@@ -243,7 +246,7 @@ color: #888;
 <video id="videoPlayer" class="vid-el" playsinline></video>
 <!-- Індикатор гучності при свайпі -->
 <div id="volumeIndicator">🔊 100%</div>
-<!-- Прихований інпут для вибору нового відео прямо з плеєра -->
+<!-- Прихований інпут для вибору нового відео прямо з плеєра (тільки для хоста) -->
 <input type="file" id="newVideoInput" accept="video/*" style="display: none;">
 
 <div class="controls" id="playerControls">
@@ -259,7 +262,7 @@ color: #888;
 <button id="restartBtn" class="action-btn">↺ З початку</button>
 <button id="fullscreenBtn" class="fullscreen-btn">⛶ Екран</button>
 
-<button id="changeVideoBtn" class="file-btn btn-full">📁 Вибрати інше відео</button>
+<button id="changeVideoBtn" class="file-btn btn-full" style="display:none;">📁 Вибрати інше відео</button>
 <button id="playerSaveBtn" class="save-btn btn-full">💾 Зберегти калібрування</button>
 
 <button id="scalePlusBtn" class="scale-btn">🔍 Збільшити (+)</button>
@@ -284,6 +287,8 @@ const playerScreen = document.getElementById('playerScreen');
 const videoPlayer = document.getElementById('videoPlayer');
 const playerControls = document.getElementById('playerControls');
 const newVideoInput = document.getElementById('newVideoInput');
+const hostFileBlock = document.getElementById('hostFileBlock');
+const changeVideoBtn = document.getElementById('changeVideoBtn');
 
 const roleSelect = document.getElementById('roleSelect');
 const positionSelect = document.getElementById('positionSelect');
@@ -373,9 +378,13 @@ roleSelect.addEventListener('change', () => {
 if (roleSelect.value === 'host') {
 hostSection.classList.remove('hidden');
 clientSection.classList.add('hidden');
+hostFileBlock.style.display = 'block';
+changeVideoBtn.style.display = 'block';
 } else {
 hostSection.classList.add('hidden');
 clientSection.classList.remove('hidden');
+hostFileBlock.style.display = 'none';
+changeVideoBtn.style.display = 'none';
 }
 });
 
@@ -387,13 +396,13 @@ videoPlayer.src = localVideoBlobUrl;
 }
 });
 
-document.getElementById('changeVideoBtn').addEventListener('click', () => {
-newVideoInput.click();
+changeVideoBtn.addEventListener('click', () => {
+if (isHost) newVideoInput.click();
 });
 
 newVideoInput.addEventListener('change', (e) => {
 const file = e.target.files[0];
-if (file) {
+if (file && isHost) {
 localVideoBlobUrl = URL.createObjectURL(file);
 videoPlayer.src = localVideoBlobUrl;
 videoPlayer.load();
@@ -401,6 +410,11 @@ updateVideoStyle();
 videoPlayer.currentTime = 0;
 videoPlayer.pause();
 playPauseBtn.textContent = '▶ Грати';
+
+// Передаємо новий стрім клієнту при зміні відео
+if (conn && conn.open) {
+sendVideoStream();
+}
 }
 });
 
@@ -432,6 +446,12 @@ conn = connection;
 setupConnection();
 });
 
+// На хості: коли клієнт телефонує по WebRTC для отримання медіастріму
+peer.on('call', (call) => {
+call.answer(); // Відповідаємо на дзвінок без аудіопотоку від клієнта
+sendVideoStream(call);
+});
+
 peer.on('error', (err) => {
 if (err.type === 'unavailable-id') {
 peer.destroy();
@@ -443,7 +463,6 @@ connectionStatus.textContent = 'Помилка: ' + err.type;
 }
 
 connectClientBtn.addEventListener('click', () => {
-if (!localVideoBlobUrl) { alert('Виберіть відеофайл!'); return; }
 const code = clientCodeInput.value.trim();
 if (code.length !== 5) { alert('Введіть 5-значний код!'); return; }
 
@@ -456,6 +475,19 @@ peer = new Peer();
 peer.on('open', () => {
 conn = peer.connect('sp-' + code);
 setupConnection();
+});
+
+// Клієнт приймає відеопотік (стрім) від головного телефону
+peer.on('call', (call) => {
+call.answer();
+call.on('stream', (remoteStream) => {
+videoPlayer.srcObject = remoteStream;
+setupCard.style.display = 'none';
+playerScreen.style.display = 'block';
+updateVideoStyle();
+videoPlayer.play().catch(e => {});
+playPauseBtn.textContent = '❚❚ Пауза';
+});
 });
 
 peer.on('error', () => {
@@ -474,12 +506,43 @@ position: positionSelect.value
 }
 }
 
+// Функція надсилання відеостріму через P2P
+function sendVideoStream(specificCall = null) {
+if (!isHost || !videoPlayer.srcObject && !localVideoBlobUrl) return;
+try {
+let stream = null;
+if (videoPlayer.captureStream) {
+stream = videoPlayer.captureStream();
+} else if (videoPlayer.mozCaptureStream) {
+stream = videoPlayer.mozCaptureStream();
+}
+
+if (stream && conn && conn.open) {
+if (specificCall) {
+specificCall.answer(stream);
+} else {
+peer.call(conn.peer, stream);
+}
+}
+} catch (e) {
+console.error("Помилка надсилання стріму:", e);
+}
+}
+
 function setupConnection() {
 conn.on('open', () => {
 connectionStatus.textContent = 'Статус: Успішно підключено!';
 sendScreenInfo();
 
+// Якщо хост вже запустить відео, надсилаємо запит/стрім
+if (isHost) {
 setTimeout(() => {
+sendVideoStream();
+}, 500);
+}
+
+setTimeout(() => {
+if (isHost) {
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
 updateVideoStyle();
@@ -487,6 +550,8 @@ updateVideoStyle();
 videoPlayer.currentTime = 0;
 videoPlayer.play().catch(err => {});
 playPauseBtn.textContent = '❚❚ Пауза';
+sendVideoStream();
+}
 
 if (isHost) {
 if (syncInterval) clearInterval(syncInterval);
@@ -567,6 +632,7 @@ const myHeight = window.innerHeight;
 const pWidth = partnerWidth > 0 ? partnerWidth : myWidth;
 
 const position = positionSelect.value;
+// Вираховуємо пропорції відео (або зі стандартних налаштувань, або за замовчуванням 16:9)
 const videoAspect = (videoPlayer.videoWidth && videoPlayer.videoHeight)
 ? (videoPlayer.videoWidth / videoPlayer.videoHeight)
 : (16 / 9);
@@ -638,7 +704,6 @@ fullscreenBtn.textContent = '⛶ Екран';
 }
 }
 
-// Керування показом панелі (з урахуванням свайпу гучності)
 playerScreen.addEventListener('click', (e) => {
 if (hasSwiped) {
 hasSwiped = false;
@@ -649,7 +714,6 @@ playerControls.style.display = playerControls.style.display === 'none' ? 'flex' 
 }
 });
 
-// Логіка таймлайна
 function formatTime(seconds) {
 if (isNaN(seconds)) return "00:00";
 const mins = Math.floor(seconds / 60);
@@ -690,7 +754,6 @@ conn.send(JSON.stringify({ type: 'seek', time: newTime }));
 timelineRange.addEventListener('mouseup', () => { isDraggingTimeline = false; });
 timelineRange.addEventListener('touchend', () => { isDraggingTimeline = false; });
 
-// Логіка свайпу гучності вгору/вниз по екрану
 playerScreen.addEventListener('touchstart', (e) => {
 if (playerControls.contains(e.target)) return;
 if (e.touches.length === 1) {
@@ -706,7 +769,7 @@ playerScreen.addEventListener('touchmove', (e) => {
 if (!isSwipingVolume || e.touches.length !== 1) return;
 const currentY = e.touches[0].clientY;
 const currentX = e.touches[0].clientX;
-const diffY = touchStartY - currentY; // Позитивне при русі вгору
+const diffY = touchStartY - currentY;
 const diffX = touchStartX - currentX;
 
 if (Math.abs(diffY) > 10 || Math.abs(diffX) > 10) {
@@ -715,7 +778,7 @@ hasSwiped = true;
 
 if (hasSwiped) {
 const screenHeight = window.innerHeight;
-const volumeChange = (diffY / screenHeight) * 1.5; // Чутливість свайпу
+const volumeChange = (diffY / screenHeight) * 1.5;
 let newVolume = Math.max(0, Math.min(1, touchStartVolume + volumeChange));
 videoPlayer.volume = newVolume;
 showVolumeIndicator(Math.round(newVolume * 100));
