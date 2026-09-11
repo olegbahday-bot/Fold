@@ -240,6 +240,11 @@ color: #888;
 </head>
 <body>
 
+<!-- Прихований аудіо-маячок для запобігання засинанню екрана на мобільних -->
+<audio id="keepAliveAudio" loop style="display:none">
+<source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" type="audio/wav">
+</audio>
+
 <div class="card" id="setupCard">
 <h2>ScreenParty Sync</h2>
 
@@ -252,7 +257,7 @@ color: #888;
 <label>Позиція екрана:</label>
 <select id="positionSelect">
 <option value="left">Ліва частина (поруч зліва)</option>
-<option value="right">Права частина (поруч справа)</option>
+<option value="right" selected>Права частина (поруч справа)</option>
 </select>
 
 <label>Режим відео:</label>
@@ -354,6 +359,7 @@ const calibBox = document.getElementById('calibBox');
 const videoPlayer = document.getElementById('videoPlayer');
 const playerControls = document.getElementById('playerControls');
 const newVideoInput = document.getElementById('newVideoInput');
+const keepAliveAudio = document.getElementById('keepAliveAudio');
 
 const roleSelect = document.getElementById('roleSelect');
 const positionSelect = document.getElementById('positionSelect');
@@ -404,8 +410,8 @@ let touchStartVolume = 1.0;
 let hasSwiped = false;
 let volumeTimeout = null;
 
-// Функція запобігання засинанню екрана (Wake Lock)
-async function requestWakeLock() {
+// Потужний захист від засинання екрана (Wake Lock API + фоновий аудіо-маячок)
+async function preventScreenSleep() {
 try {
 if ('wakeLock' in navigator) {
 wakeLock = await navigator.wakeLock.request('screen');
@@ -413,15 +419,18 @@ wakeLock.addEventListener('release', () => {
 wakeLock = null;
 });
 }
-} catch (err) {
-console.error(`${err.name}, ${err.message}`);
-}
+} catch (err) {}
+
+// Запуск беззвучного аудіо, щоб система гарантовано не гасила екран і процеси
+try {
+keepAliveAudio.volume = 0.01;
+await keepAliveAudio.play();
+} catch (e) {}
 }
 
-// Автоматичне відновлення блокування екрана, якщо вкладка знову стала активною
 document.addEventListener('visibilitychange', async () => {
-if (wakeLock !== null && document.visibilityState === 'visible') {
-await requestWakeLock();
+if (document.visibilityState === 'visible') {
+await preventScreenSleep();
 }
 });
 
@@ -567,6 +576,7 @@ return Math.floor(10000 + Math.random() * 90000).toString();
 startHostBtn.addEventListener('click', () => {
 if (!localVideoBlobUrl) { alert('Виберіть відеофайл на головному телефоні!'); return; }
 requestFullscreenNow();
+preventScreenSleep();
 isHost = true;
 startHostPeer();
 });
@@ -612,6 +622,7 @@ const code = clientCodeInput.value.trim();
 if (code.length !== 5) { alert('Введіть 5-значний код!'); return; }
 
 requestFullscreenNow();
+preventScreenSleep();
 isHost = false;
 connectionStatus.textContent = 'Статус: Підключення до кімнати...';
 
@@ -629,7 +640,7 @@ videoPlayer.srcObject = remoteStream;
 videoPlayer.play().catch(e => {});
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
-requestWakeLock(); // Активуємо заборону сну для клієнта
+preventScreenSleep();
 updateVideoStyle();
 playPauseBtn.textContent = '▶ Грати';
 });
@@ -675,6 +686,7 @@ peer.call(conn.peer, stream);
 function setupConnection() {
 conn.on('open', () => {
 connectionStatus.textContent = 'Статус: Успішно підключено!';
+preventScreenSleep();
 sendScreenInfo();
 
 if (isHost && videoModeSelect.value === 'stream') {
@@ -686,7 +698,7 @@ sendVideoStream();
 setTimeout(() => {
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
-requestWakeLock(); // Активуємо заборону сну при підключенні
+preventScreenSleep();
 updateVideoStyle();
 
 if (videoModeSelect.value === 'local' || isHost) {
@@ -766,6 +778,7 @@ location.reload();
 
 document.addEventListener('visibilitychange', () => {
 if (!document.hidden) {
+preventScreenSleep();
 if (conn && conn.open) {
 if (isHost) {
 conn.send(JSON.stringify({
@@ -833,6 +846,7 @@ updateVideoStyle();
 }
 
 playPauseBtn.addEventListener('click', () => {
+preventScreenSleep();
 if (videoPlayer.paused) {
 videoPlayer.playbackRate = 1.0;
 videoPlayer.play().catch(e => {});
@@ -847,6 +861,7 @@ if (conn) conn.send(JSON.stringify({ type: 'pause' }));
 });
 
 restartBtn.addEventListener('click', () => {
+preventScreenSleep();
 videoPlayer.playbackRate = 1.0;
 videoPlayer.currentTime = 0;
 videoPlayer.play().catch(e => {});
@@ -878,6 +893,7 @@ fullscreenBtn.textContent = '⛶ Екран';
 }
 
 playerScreen.addEventListener('click', (e) => {
+preventScreenSleep();
 if (hasSwiped) {
 hasSwiped = false;
 return;
@@ -928,6 +944,7 @@ timelineRange.addEventListener('mouseup', () => { isDraggingTimeline = false; })
 timelineRange.addEventListener('touchend', () => { isDraggingTimeline = false; });
 
 playerScreen.addEventListener('touchstart', (e) => {
+preventScreenSleep();
 if (playerControls.contains(e.target)) return;
 if (e.touches.length === 1) {
 isSwipingVolume = true;
