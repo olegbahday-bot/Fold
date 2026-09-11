@@ -421,7 +421,9 @@ let hasSwiped = false;
 let volumeTimeout = null;
 
 let streamingCanvas = document.createElement('canvas');
-let streamingCtx = streamingCanvas.getContext('2d');
+streamingCanvas.style.display = 'none';
+document.body.appendChild(streamingCanvas);
+let streamingCtx = streamingCanvas.getContext('2d', { alpha: false });
 let animationFrameId = null;
 
 if ('mediaSession' in navigator) {
@@ -1027,7 +1029,7 @@ activateNoSleep();
 preventScreenSleep();
 if (playerControls.contains(e.target)) return;
 if (e.touches.length === 1) {
-isSwipingVolume = true;
+isSwinputValue = true;
 touchStartY = e.touches[0].clientY;
 touchStartX = e.touches[0].clientX;
 touchStartVolume = videoPlayer.volume;
