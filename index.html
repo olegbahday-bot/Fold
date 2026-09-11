@@ -8,6 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <title>ScreenParty Sync</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/nosleep/0.12.0/NoSleep.min.js"></script>
 <style>
 body {
 margin: 0;
@@ -386,9 +387,19 @@ let peer = null;
 let conn = null;
 let isHost = false;
 let localVideoBlobUrl = null;
-let wakeLock = null;
 let audioCtx = null;
-let keepAwakeInterval = null;
+
+// Ініціалізація NoSleep для гарантованого блокування сну екрана
+let noSleep = new NoSleep();
+let noSleepActive = false;
+
+function activateNoSleep() {
+    if (!noSleepActive) {
+        noSleep.enable().then(() => {
+            noSleepActive = true;
+        }).catch(err => {});
+    }
+}
 
 let videoOffsetX = 0;
 let videoOffsetY = 0;
@@ -410,7 +421,7 @@ let streamingCanvas = document.createElement('canvas');
 let streamingCtx = streamingCanvas.getContext('2d');
 let animationFrameId = null;
 
-// Налаштування медіа-сесії для ОС (блокує вимкнення екрана на рівні системи)
+// Медіа-сесія для ОС
 if ('mediaSession' in navigator) {
 navigator.mediaSession.metadata = new MediaMetadata({
 title: 'ScreenParty Sync P2P',
@@ -420,19 +431,13 @@ album: 'Active Session'
 }
 
 function preventScreenSleep() {
-// 1. Wake Lock API
+activateNoSleep();
 try {
 if ('wakeLock' in navigator) {
-if (!wakeLock) {
-navigator.wakeLock.request('screen').then(lock => {
-wakeLock = lock;
-wakeLock.addEventListener('release', () => { wakeLock = null; });
-}).catch(e => {});
-}
+navigator.wakeLock.request('screen').catch(e => {});
 }
 } catch (err) {}
 
-// 2. Audio Context тригер
 try {
 if (!audioCtx) {
 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -442,24 +447,13 @@ audioCtx.resume();
 }
 } catch (e) {}
 
-// 3. Media Session активний стан
 if ('mediaSession' in navigator) {
 navigator.mediaSession.playbackState = 'playing';
 }
 }
 
-// Періодичне підтримання активності екрана раз на 15 секунд
-if (!keepAwakeInterval) {
-keepAwakeInterval = setInterval(() => {
-preventScreenSleep();
-}, 15000);
-}
-
-document.addEventListener('visibilitychange', () => {
-if (document.visibilityState === 'visible') {
-preventScreenSleep();
-}
-});
+document.addEventListener('click', activateNoSleep, { once: true });
+document.addEventListener('touchstart', activateNoSleep, { once: true });
 
 function loadSavedSettings() {
 const savedScale = localStorage.getItem('sp_scale');
@@ -602,6 +596,7 @@ return Math.floor(10000 + Math.random() * 90000).toString();
 }
 
 startHostBtn.addEventListener('click', () => {
+activateNoSleep();
 if (!localVideoBlobUrl) {
 alert('Спочатку виберіть відеофайл на головному телефоні!');
 connectionStatus.textContent = 'Статус: Помилка — не вибрано відеофайл';
@@ -653,6 +648,7 @@ connectionStatus.textContent = 'Помилка мережі: ' + err.type;
 }
 
 connectClientBtn.addEventListener('click', () => {
+activateNoSleep();
 const mode = videoModeSelect.value;
 if (mode === 'local' && !localVideoBlobUrl) { 
 alert('Виберіть відеофайл!'); 
@@ -921,6 +917,7 @@ updateVideoStyle();
 }
 
 playPauseBtn.addEventListener('click', () => {
+activateNoSleep();
 preventScreenSleep();
 if (videoPlayer.paused) {
 videoPlayer.playbackRate = 1.0;
@@ -938,6 +935,7 @@ if (conn) conn.send(JSON.stringify({ type: 'pause' }));
 });
 
 restartBtn.addEventListener('click', () => {
+activateNoSleep();
 preventScreenSleep();
 videoPlayer.playbackRate = 1.0;
 videoPlayer.currentTime = 0;
@@ -971,6 +969,7 @@ fullscreenBtn.textContent = '⛶ Екран';
 }
 
 playerScreen.addEventListener('click', (e) => {
+activateNoSleep();
 preventScreenSleep();
 if (hasSwiped) {
 hasSwiped = false;
@@ -1022,6 +1021,7 @@ timelineRange.addEventListener('mouseup', () => { isDraggingTimeline = false; })
 timelineRange.addEventListener('touchend', () => { isDraggingTimeline = false; });
 
 playerScreen.addEventListener('touchstart', (e) => {
+activateNoSleep();
 preventScreenSleep();
 if (playerControls.contains(e.target)) return;
 if (e.touches.length === 1) {
