@@ -74,7 +74,7 @@ margin-top: 8px;
 display: inline-block;
 }
 
-/* Екран калібрування (поверх плеєра) */
+/* Екран калібрування (викликається кнопкою) */
 #calibrationScreen {
 position: fixed;
 top: 0; left: 0;
@@ -257,8 +257,8 @@ color: #888;
 
 <label>Режим відео:</label>
 <select id="videoModeSelect">
-<option value="local">Локальні файли на обох телефонах (рекомендується)</option>
 <option value="stream">Трансляція відео з Головного на другий (P2P)</option>
+<option value="local">Локальні файли на обох телефонах</option>
 </select>
 
 <div id="fileInputContainer">
@@ -283,7 +283,7 @@ color: #888;
 <div class="status" id="connectionStatus">Статус: Очікування налаштування</div>
 </div>
 
-<!-- Екран калібрування (викликається кнопкою) -->
+<!-- Екран калібрування -->
 <div id="calibrationScreen">
 <div id="calibBox" class="calib-box">
 <div class="calib-circle">Full HD<br>Центр</div>
@@ -328,7 +328,6 @@ color: #888;
 
 <button id="changeVideoBtn" class="file-btn btn-full">📁 Вибрати інше відео</button>
 
-<!-- Кнопка виклику калібрування та збереження -->
 <button id="openCalibOverlayBtn" class="calib-open-btn btn-full">📐 Увімкнути калібрування</button>
 <button id="playerSaveBtn" class="save-btn btn-full">💾 Зберегти налаштування</button>
 
@@ -451,8 +450,13 @@ const mode = videoModeSelect.value;
 if (role === 'host') {
 hostSection.classList.remove('hidden');
 clientSection.classList.add('hidden');
+if (mode === 'stream') {
 fileInputContainer.style.display = 'block';
 changeVideoBtn.style.display = 'block';
+} else {
+fileInputContainer.style.display = 'block';
+changeVideoBtn.style.display = 'block';
+}
 } else {
 hostSection.classList.add('hidden');
 clientSection.classList.remove('hidden');
@@ -477,18 +481,15 @@ else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
 }
 }
 
-// Кнопка відкриття калібрування поверх відео
 openCalibOverlayBtn.addEventListener('click', () => {
 calibrationScreen.style.display = 'block';
 updateCalibrationStyle();
 });
 
-// Кнопка збереження та приховання калібрування (і самої кнопки калібрування)
 closeCalibBtn.addEventListener('click', () => {
 saveSettings();
 calibrationScreen.style.display = 'none';
 updateVideoStyle();
-// Повністю приховуємо кнопку калібрування за бажанням користувача
 openCalibOverlayBtn.style.display = 'none';
 });
 
@@ -534,8 +535,10 @@ videoPlayer.currentTime = 0;
 videoPlayer.pause();
 playPauseBtn.textContent = '▶ Грати';
 
-if (videoModeSelect.value === 'stream' && conn && conn.open) {
+if (videoModeSelect.value === 'stream') {
+setTimeout(() => {
 sendVideoStream();
+}, 500);
 }
 }
 });
@@ -545,7 +548,7 @@ return Math.floor(10000 + Math.random() * 90000).toString();
 }
 
 startHostBtn.addEventListener('click', () => {
-if (!localVideoBlobUrl && videoModeSelect.value === 'local') { alert('Виберіть відеофайл!'); return; }
+if (!localVideoBlobUrl) { alert('Виберіть відеофайл на головному телефоні!'); return; }
 requestFullscreenNow();
 isHost = true;
 startHostPeer();
@@ -606,10 +609,10 @@ peer.on('call', (call) => {
 call.answer();
 call.on('stream', (remoteStream) => {
 videoPlayer.srcObject = remoteStream;
+videoPlayer.play().catch(e => {});
 setupCard.style.display = 'none';
-playerScreen.style.display = 'block'; // Одразу відкриваємо плеєр, без примусового калібрування
+playerScreen.style.display = 'block';
 updateVideoStyle();
-videoPlayer.pause();
 playPauseBtn.textContent = '▶ Грати';
 });
 });
@@ -659,12 +662,12 @@ sendScreenInfo();
 if (isHost && videoModeSelect.value === 'stream') {
 setTimeout(() => {
 sendVideoStream();
-}, 500);
+}, 1000);
 }
 
 setTimeout(() => {
 setupCard.style.display = 'none';
-playerScreen.style.display = 'block'; // Одразу переходимо до плеєра
+playerScreen.style.display = 'block';
 updateVideoStyle();
 
 if (videoModeSelect.value === 'local' || isHost) {
