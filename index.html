@@ -88,11 +88,11 @@ box-sizing: border-box;
 display: flex;
 justify-content: center;
 align-items: center;
-background: rgba(76, 175, 80, 0.05);
+background: rgba(76, 175, 80, 0.08);
 }
 .calib-circle {
-width: 100px;
-height: 100px;
+width: 140px;
+height: 140px;
 border: 3px solid #FFEB3B;
 border-radius: 50%;
 box-sizing: border-box;
@@ -103,7 +103,7 @@ color: #FFEB3B;
 font-size: 12px;
 font-weight: bold;
 text-align: center;
-background: rgba(255, 235, 59, 0.1);
+background: rgba(255, 235, 59, 0.15);
 }
 
 /* Екран плеєра */
@@ -228,6 +228,12 @@ width: 100%;
 .save-btn { background-color: #FF5722; }
 .file-btn { background-color: #607D8B; }
 .calib-open-btn { background-color: #9C27B0; }
+
+.status {
+font-size: 12px;
+margin-top: 10px;
+color: #888;
+}
 </style>
 </head>
 <body>
@@ -259,8 +265,6 @@ width: 100%;
 <input type="file" id="videoInput" accept="video/*">
 </div>
 
-<button id="openCalibrationBtn" class="calib-open-btn">📐 Калібрування екрана</button>
-
 <div id="hostSection">
 <button id="startHostBtn">Створити кімнату та запустити</button>
 <div id="codeContainer" class="hidden">
@@ -284,7 +288,7 @@ width: 100%;
 <div class="calib-circle">Full HD<br>Центр</div>
 </div>
 <div class="controls">
-<div style="font-size: 11px; text-align: center; color: #FFEB3B; font-weight: bold; margin-bottom: 2px;">Режим калібрування Full HD рамки</div>
+<div style="font-size: 11px; text-align: center; color: #FFEB3B; font-weight: bold; margin-bottom: 2px;">Калібрування Full HD рамки (обидва екрани)</div>
 <div class="controls-grid">
 <button id="calibScalePlus" class="scale-btn">🔍 Збільшити (+)</button>
 <button id="calibReset" class="reset-btn">Скидання</button>
@@ -298,7 +302,7 @@ width: 100%;
 <button id="calibShiftDown">▼ Вниз</button>
 <button class="reset-btn" style="visibility: hidden;"></button>
 
-<button id="closeCalibBtn" class="save-btn btn-full">✔ Зберегти та повернутися</button>
+<button id="closeCalibBtn" class="save-btn btn-full">✔ Зберегти та повернутися до відео</button>
 </div>
 </div>
 </div>
@@ -320,6 +324,8 @@ width: 100%;
 
 <div style="font-size: 10px; text-align: center; color: #ddd; font-weight: bold; margin-bottom: 2px;">Керування та калібрування</div>
 <div class="controls-grid">
+<button id="openCalibOverlayBtn" class="calib-open-btn btn-full">📐 Калібрування Full HD рамки</button>
+
 <button id="playPauseBtn" class="action-btn">▶ Грати</button>
 <button id="restartBtn" class="action-btn">↺ З початку</button>
 <button id="fullscreenBtn" class="fullscreen-btn">⛶ Екран</button>
@@ -361,7 +367,7 @@ const hostSection = document.getElementById('hostSection');
 const clientSection = document.getElementById('clientSection');
 const connectionStatus = document.getElementById('connectionStatus');
 
-const openCalibrationBtn = document.getElementById('openCalibrationBtn');
+const openCalibOverlayBtn = document.getElementById('openCalibOverlayBtn');
 const closeCalibBtn = document.getElementById('closeCalibBtn');
 
 const startHostBtn = document.getElementById('startHostBtn');
@@ -467,10 +473,9 @@ else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
 }
 }
 
-// Калібрування
-openCalibrationBtn.addEventListener('click', () => {
-requestFullscreenNow();
-setupCard.style.display = 'none';
+// Керування відкриттям/закриттям калібрування з плеєра
+openCalibOverlayBtn.addEventListener('click', () => {
+playerScreen.style.display = 'none';
 calibrationScreen.style.display = 'block';
 updateCalibrationStyle();
 });
@@ -478,14 +483,15 @@ updateCalibrationStyle();
 closeCalibBtn.addEventListener('click', () => {
 saveSettings();
 calibrationScreen.style.display = 'none';
-setupCard.style.display = 'block';
+playerScreen.style.display = 'block';
+updateVideoStyle();
 });
 
 function updateCalibrationStyle() {
 const myWidth = window.innerWidth;
 const pWidth = partnerWidth > 0 ? partnerWidth : myWidth;
 const position = positionSelect.value;
-const videoAspect = 16 / 9; // Full HD пропорція
+const videoAspect = 16 / 9; // Стандарт Full HD 16:9
 
 const combinedWidth = myWidth + pWidth;
 const finalWidth = combinedWidth * videoScaleMultiplier;
@@ -597,9 +603,10 @@ call.on('stream', (remoteStream) => {
 videoPlayer.srcObject = remoteStream;
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
+playerControls.style.display = 'flex';
 updateVideoStyle();
-videoPlayer.play().catch(e => {});
-playPauseBtn.textContent = '❚❚ Пауза';
+videoPlayer.pause(); // Зупинено, щоб дати можливість откалібруватись або натиснути play
+playPauseBtn.textContent = '▶ Грати';
 });
 });
 
@@ -654,12 +661,13 @@ sendVideoStream();
 setTimeout(() => {
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
+playerControls.style.display = 'flex';
 updateVideoStyle();
 
 if (videoModeSelect.value === 'local' || isHost) {
 videoPlayer.currentTime = 0;
-videoPlayer.play().catch(err => {});
-playPauseBtn.textContent = '❚❚ Пауза';
+videoPlayer.pause(); // Чекаємо на старт від користувача після можливого калібрування
+playPauseBtn.textContent = '▶ Грати';
 }
 
 if (isHost) {
@@ -964,7 +972,7 @@ saveSettings();
 
 document.getElementById('playerSaveBtn').addEventListener('click', saveSettings);
 
-// Управління для звичайного плеєра
+// Управління для основного плеєра
 document.getElementById('shiftUpBtn').addEventListener('click', () => applyShift(0, -4));
 document.getElementById('shiftDownBtn').addEventListener('click', () => applyShift(0, 4));
 document.getElementById('shiftLeftBtn').addEventListener('click', () => applyShift(-4, 0));
@@ -980,7 +988,7 @@ updateCalibrationStyle();
 saveSettings();
 });
 
-// Управління для екрана калібрування
+// Управління для екрана калібрування Full HD рамки
 document.getElementById('calibShiftUp').addEventListener('click', () => applyShift(0, -4));
 document.getElementById('calibShiftDown').addEventListener('click', () => applyShift(0, 4));
 document.getElementById('calibShiftLeft').addEventListener('click', () => applyShift(-4, 0));
