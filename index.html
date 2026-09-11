@@ -744,13 +744,12 @@ activeCall = peer.call(conn.peer, stream);
 }
 
 function setupConnection() {
-conn.on('open', () => {
+const handleConnectionReady = () => {
 connectionStatus.textContent = 'Статус: Успішно підключено!';
 preventScreenSleep();
 sendScreenInfo();
 
 setTimeout(() => {
-// Переходимо на екран плеєра на обох пристроях одразу при з'єднанні
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
 preventScreenSleep();
@@ -778,7 +777,14 @@ time: videoPlayer.currentTime
 }, 2000);
 }
 }, 300);
-});
+};
+
+// Захист від втрати події open, якщо з'єднання вже відкрите (особливо на хості)
+if (conn.open) {
+handleConnectionReady();
+} else {
+conn.on('open', handleConnectionReady);
+}
 
 conn.on('data', (data) => {
 try {
