@@ -87,12 +87,15 @@ z-index: 150;
 }
 .calib-box {
 position: absolute;
+top: 0;
+left: 0;
 border: 2px dashed #4CAF50;
 box-sizing: border-box;
 display: flex;
 justify-content: center;
 align-items: center;
 background: rgba(76, 175, 80, 0.08);
+will-change: transform;
 }
 .calib-circle {
 width: 140px;
@@ -125,6 +128,7 @@ position: absolute;
 top: 0;
 left: 0;
 object-fit: fill;
+will-change: transform;
 }
 
 /* Індикатор гучності */
@@ -393,7 +397,6 @@ let audioCtx = null;
 let noSleep = new NoSleep();
 let noSleepActive = false;
 
-// Надійні STUN-сервери для обходу NAT на мобільному інтернеті
 const peerOptions = {
     debug: 1,
     config: {
@@ -562,8 +565,7 @@ let topPos = videoOffsetY;
 
 calibBox.style.width = finalWidth + 'px';
 calibBox.style.height = finalHeight + 'px';
-calibBox.style.left = leftPos + 'px';
-calibBox.style.top = topPos + 'px';
+calibBox.style.transform = `translate3d(${leftPos}px, ${topPos}px, 0)`;
 }
 
 videoInput.addEventListener('change', (e) => {
@@ -694,7 +696,6 @@ preventScreenSleep();
 updateVideoStyle();
 playPauseBtn.textContent = '❚❚ Пауза';
 }).catch(err => {
-// Fallback якщо браузер блокує autoplay зі звуком
 videoPlayer.muted = true;
 videoPlayer.play().then(() => {
 setupCard.style.display = 'none';
@@ -898,8 +899,7 @@ topPos = videoOffsetY;
 
 videoPlayer.style.width = finalWidth + 'px';
 videoPlayer.style.height = finalHeight + 'px';
-videoPlayer.style.left = leftPos + 'px';
-videoPlayer.style.top = topPos + 'px';
+videoPlayer.style.transform = `translate3d(${leftPos}px, ${topPos}px, 0)`;
 }
 
 window.addEventListener('resize', () => {
