@@ -262,7 +262,7 @@ color: #888;
 </select>
 
 <div id="fileInputContainer">
-<label>Виберіть відеофайл:</label>
+<label>Виберіть відеофайл (потрібно лише для Головного):</label>
 <input type="file" id="videoInput" accept="video/*">
 </div>
 
@@ -286,7 +286,7 @@ color: #888;
 <!-- Екран калібрування -->
 <div id="calibrationScreen">
 <div id="calibBox" class="calib-box">
-<div class="calib-circle">Full HD<br>Центр</div>
+<div class="calib-circle">HD 720p<br>Центр</div>
 </div>
 <div class="controls">
 <div style="font-size: 11px; text-align: center; color: #FFEB3B; font-weight: bold; margin-bottom: 2px;">Калібрування цього екрана</div>
@@ -405,12 +405,10 @@ let touchStartVolume = 1.0;
 let hasSwiped = false;
 let volumeTimeout = null;
 
-// Змінні для оптимізованого стріму через Canvas
 let streamingCanvas = document.createElement('canvas');
 let streamingCtx = streamingCanvas.getContext('2d');
 let animationFrameId = null;
 
-// Захист від засинання через Web Audio API + Wake Lock API
 function preventScreenSleep() {
 try {
 if ('wakeLock' in navigator) {
@@ -672,7 +670,6 @@ videoMode: videoModeSelect.value
 }
 }
 
-// Оптимізована функція передачі стріму: стискання до HD (720p) і 30 FPS для економії батареї та процесора
 function sendVideoStream(specificCall = null) {
 if (!isHost || videoModeSelect.value !== 'stream') return;
 try {
@@ -681,7 +678,7 @@ const videoHeight = videoPlayer.videoHeight || 720;
 
 let targetWidth = videoWidth;
 let targetHeight = videoHeight;
-const maxW = 1280; // Максимальна ширина HD (720p)
+const maxW = 1280;
 const maxH = 720;
 
 if (videoWidth > maxW || videoHeight > maxH) {
@@ -702,7 +699,7 @@ animationFrameId = requestAnimationFrame(drawFrame);
 }
 drawFrame();
 
-let stream = streamingCanvas.captureStream(30); // 30 кадрів/с оптимізовано для мобільних
+let stream = streamingCanvas.captureStream(30);
 
 if (stream && conn && conn.open) {
 if (specificCall) {
@@ -1048,7 +1045,7 @@ saveSettings();
 document.getElementById('calibShiftUp').addEventListener('click', () => applyShift(0, -4));
 document.getElementById('calibShiftDown').addEventListener('click', () => applyShift(0, 4));
 document.getElementById('calibShiftLeft').addEventListener('click', () => applyShift(-4, 0));
-document.getElementById('calibShiftRight').addEventListener('click', () => applyShift4, 0)); // wait, syntax check: applyShift(4, 0)
+document.getElementById('calibShiftRight').addEventListener('click', () => applyShift(4, 0));
 document.getElementById('calibScalePlus').addEventListener('click', () => applyScale(0.02));
 document.getElementById('calibScaleMinus').addEventListener('click', () => applyScale(-0.02));
 document.getElementById('calibReset').addEventListener('click', () => {
