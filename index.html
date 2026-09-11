@@ -396,7 +396,6 @@ function activateNoSleep() {
     if (!noSleepActive) {
         noSleep.enable().then(() => {
             noSleepActive = true;
-            // Запобігаємо випадковому запуску основного відео через активацію NoSleep
             if (isHost || videoPlayer.src) {
                 videoPlayer.pause();
                 playPauseBtn.textContent = '▶ Грати';
@@ -589,7 +588,7 @@ playPauseBtn.textContent = '▶ Грати';
 
 if (videoModeSelect.value === 'stream') {
 setTimeout(() => {
-sendVideoStream();
+startStreaming();
 }, 500);
 }
 }
@@ -637,7 +636,8 @@ setupConnection();
 peer.on('call', (call) => {
 call.answer();
 if (videoModeSelect.value === 'stream') {
-sendVideoStream(call);
+const stream = streamingCanvas.captureStream(30);
+call.answer(stream);
 }
 });
 
@@ -714,7 +714,7 @@ videoMode: videoModeSelect.value
 }
 }
 
-function sendVideoStream(specificCall = null) {
+function startStreaming() {
 if (!isHost || videoModeSelect.value !== 'stream') return;
 try {
 const videoWidth = videoPlayer.videoWidth || 1280;
@@ -737,8 +737,11 @@ streamingCanvas.height = targetHeight;
 if (animationFrameId) cancelAnimationFrame(animationFrameId);
 
 function drawFrame() {
-if (videoPlayer.paused || videoPlayer.ended) return;
+if (videoModeSelect.value === 'stream' && streamingCtx) {
+try {
 streamingCtx.drawImage(videoPlayer, 0, 0, targetWidth, targetHeight);
+} catch (e) {}
+}
 animationFrameId = requestAnimationFrame(drawFrame);
 }
 drawFrame();
@@ -746,11 +749,7 @@ drawFrame();
 let stream = streamingCanvas.captureStream(30);
 
 if (stream && conn && conn.open) {
-if (specificCall) {
-specificCall.answer(stream);
-} else {
 peer.call(conn.peer, stream);
-}
 }
 } catch (e) {}
 }
@@ -763,7 +762,7 @@ sendScreenInfo();
 
 if (isHost && videoModeSelect.value === 'stream') {
 setTimeout(() => {
-sendVideoStream();
+startStreaming();
 }, 1000);
 }
 
@@ -808,7 +807,7 @@ videoPlayer.playbackRate = 1.0;
 videoPlayer.play().catch(e => {});
 playPauseBtn.textContent = '❚❚ Пауза';
 if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-if (isHost && videoModeSelect.value === 'stream') sendVideoStream();
+if (isHost && videoModeSelect.value === 'stream') startStreaming();
 } else if (msg.type === 'pause') {
 videoPlayer.playbackRate = 1.0;
 videoPlayer.pause();
@@ -820,7 +819,7 @@ videoPlayer.currentTime = 0;
 videoPlayer.play().catch(e => {});
 playPauseBtn.textContent = '❚❚ Пауза';
 if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-if (isHost && videoModeSelect.value === 'stream') sendVideoStream();
+if (isHost && videoModeSelect.value === 'stream') startStreaming();
 } else if (msg.type === 'seek') {
 videoPlayer.currentTime = msg.time;
 videoPlayer.playbackRate = 1.0;
@@ -859,7 +858,7 @@ type: 'sync_time',
 time: videoPlayer.currentTime
 }));
 if (videoModeSelect.value === 'stream') {
-sendVideoStream();
+startStreaming();
 }
 } else {
 if (videoPlayer.paused && !videoPlayer.ended) {
@@ -878,7 +877,7 @@ saveSettings();
 
 videoPlayer.addEventListener('loadedmetadata', () => {
 updateVideoStyle();
-videoPlayer.pause(); // Примусово ставимо на паузу при завантаженні метаданих
+videoPlayer.pause();
 });
 
 function updateVideoStyle() {
@@ -928,7 +927,7 @@ videoPlayer.play().catch(e => {});
 playPauseBtn.textContent = '❚❚ Пауза';
 if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
 if (conn) conn.send(JSON.stringify({ type: 'play' }));
-if (isHost && videoModeSelect.value === 'stream') sendVideoStream();
+if (isHost && videoModeSelect.value === 'stream') startStreaming();
 } else {
 videoPlayer.pause();
 playPauseBtn.textContent = '▶ Грати';
@@ -946,7 +945,7 @@ videoPlayer.play().catch(e => {});
 playPauseBtn.textContent = '❚❚ Пауза';
 if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
 if (conn) conn.send(JSON.stringify({ type: 'restart' }));
-if (isHost && videoModeSelect.value === 'stream') sendVideoStream();
+if (isHost && videoModeSelect.value === 'stream') startStreaming();
 });
 
 fullscreenBtn.addEventListener('click', () => {
