@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<!-- Захист від кешування браузером та ярликами -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -75,12 +74,12 @@ margin-top: 8px;
 display: inline-block;
 }
 
-/* Екран калібрування */
+/* Екран калібрування (поверх плеєра) */
 #calibrationScreen {
 position: fixed;
 top: 0; left: 0;
 width: 100vw; height: 100vh;
-background: #000;
+background: rgba(0,0,0,0.85);
 overflow: hidden;
 display: none;
 z-index: 150;
@@ -147,7 +146,7 @@ transition: opacity 0.3s ease;
 box-shadow: 0 4px 15px rgba(0,0,0,0.5);
 }
 
-/* Панель керування з внутрішньою прокруткою */
+/* Панель керування */
 .controls {
 position: absolute;
 bottom: 8px;
@@ -168,7 +167,6 @@ box-sizing: border-box;
 box-shadow: 0 4px 20px rgba(0,0,0,0.8);
 }
 
-/* Стилі для таймлайна */
 .timeline-container {
 display: flex;
 align-items: center;
@@ -242,7 +240,6 @@ color: #888;
 </head>
 <body>
 
-<!-- Налаштування та підключення -->
 <div class="card" id="setupCard">
 <h2>ScreenParty Sync</h2>
 
@@ -286,13 +283,13 @@ color: #888;
 <div class="status" id="connectionStatus">Статус: Очікування налаштування</div>
 </div>
 
-<!-- Екран калібрування -->
+<!-- Екран калібрування (викликається кнопкою) -->
 <div id="calibrationScreen">
 <div id="calibBox" class="calib-box">
 <div class="calib-circle">Full HD<br>Центр</div>
 </div>
 <div class="controls">
-<div style="font-size: 11px; text-align: center; color: #FFEB3B; font-weight: bold; margin-bottom: 2px;">Калібрування цього екрана (незалежне)</div>
+<div style="font-size: 11px; text-align: center; color: #FFEB3B; font-weight: bold; margin-bottom: 2px;">Калібрування цього екрана</div>
 <div class="controls-grid">
 <button id="calibScalePlus" class="scale-btn">🔍 Збільшити (+)</button>
 <button id="calibReset" class="reset-btn">Скидання</button>
@@ -306,7 +303,7 @@ color: #888;
 <button id="calibShiftDown">▼ Вниз</button>
 <button class="reset-btn" style="visibility: hidden;"></button>
 
-<button id="closeCalibBtn" class="save-btn btn-full">✔ Зберегти та перейти до відео</button>
+<button id="closeCalibBtn" class="save-btn btn-full">✔ Зберегти та сховати рамку</button>
 </div>
 </div>
 </div>
@@ -314,13 +311,10 @@ color: #888;
 <!-- Екран відеоплеєра -->
 <div id="playerScreen">
 <video id="videoPlayer" class="vid-el" playsinline></video>
-<!-- Індикатор гучності при свайпі -->
 <div id="volumeIndicator">🔊 100%</div>
-<!-- Прихований інпут для вибору нового відео прямо з плеєра -->
 <input type="file" id="newVideoInput" accept="video/*" style="display: none;">
 
 <div class="controls" id="playerControls">
-<!-- Таймлайн -->
 <div class="timeline-container">
 <input type="range" id="timelineRange" class="timeline-slider" min="0" max="100" value="0" step="0.1">
 <div class="time-display" id="timeDisplay">00:00 / 00:00</div>
@@ -334,15 +328,14 @@ color: #888;
 
 <button id="changeVideoBtn" class="file-btn btn-full">📁 Вибрати інше відео</button>
 
-<!-- Кнопка повторного виклику калібрування за потреби -->
-<button id="openCalibOverlayBtn" class="calib-open-btn btn-full">📐 Змінити калібрування цього екрана</button>
+<!-- Кнопка виклику калібрування та збереження -->
+<button id="openCalibOverlayBtn" class="calib-open-btn btn-full">📐 Увімкнути калібрування</button>
 <button id="playerSaveBtn" class="save-btn btn-full">💾 Зберегти налаштування</button>
 
 <button id="scalePlusBtn" class="scale-btn">🔍 Збільшити (+)</button>
 <button id="resetShiftBtn" class="reset-btn">Скидання</button>
 <button id="scaleMinusBtn" class="scale-btn">🔍 Зменшити (-)</button>
 
-<!-- Блок стрілок -->
 <button id="shiftLeftBtn">◄ Ліворуч</button>
 <button id="shiftUpBtn">▲ Вгору</button>
 <button id="shiftRightBtn">Праворуч ►</button>
@@ -484,17 +477,19 @@ else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
 }
 }
 
+// Кнопка відкриття калібрування поверх відео
 openCalibOverlayBtn.addEventListener('click', () => {
-playerScreen.style.display = 'none';
 calibrationScreen.style.display = 'block';
 updateCalibrationStyle();
 });
 
+// Кнопка збереження та приховання калібрування (і самої кнопки калібрування)
 closeCalibBtn.addEventListener('click', () => {
 saveSettings();
 calibrationScreen.style.display = 'none';
-playerScreen.style.display = 'block';
 updateVideoStyle();
+// Повністю приховуємо кнопку калібрування за бажанням користувача
+openCalibOverlayBtn.style.display = 'none';
 });
 
 function updateCalibrationStyle() {
@@ -612,8 +607,8 @@ call.answer();
 call.on('stream', (remoteStream) => {
 videoPlayer.srcObject = remoteStream;
 setupCard.style.display = 'none';
-calibrationScreen.style.display = 'block';
-updateCalibrationStyle();
+playerScreen.style.display = 'block'; // Одразу відкриваємо плеєр, без примусового калібрування
+updateVideoStyle();
 videoPlayer.pause();
 playPauseBtn.textContent = '▶ Грати';
 });
@@ -669,8 +664,8 @@ sendVideoStream();
 
 setTimeout(() => {
 setupCard.style.display = 'none';
-calibrationScreen.style.display = 'block';
-updateCalibrationStyle();
+playerScreen.style.display = 'block'; // Одразу переходимо до плеєра
+updateVideoStyle();
 
 if (videoModeSelect.value === 'local' || isHost) {
 videoPlayer.currentTime = 0;
@@ -703,12 +698,12 @@ videoModeSelect.value = msg.videoMode;
 updateInputsVisibility();
 }
 updateVideoStyle();
-updateCalibrationStyle();
 sendScreenInfo();
 } else if (msg.type === 'play') {
 videoPlayer.playbackRate = 1.0;
 videoPlayer.play().catch(e => {});
 playPauseBtn.textContent = '❚❚ Пауза';
+if (isHost && videoModeSelect.value === 'stream') sendVideoStream();
 } else if (msg.type === 'pause') {
 videoPlayer.playbackRate = 1.0;
 videoPlayer.pause();
@@ -718,6 +713,7 @@ videoPlayer.playbackRate = 1.0;
 videoPlayer.currentTime = 0;
 videoPlayer.play().catch(e => {});
 playPauseBtn.textContent = '❚❚ Пауза';
+if (isHost && videoModeSelect.value === 'stream') sendVideoStream();
 } else if (msg.type === 'seek') {
 videoPlayer.currentTime = msg.time;
 videoPlayer.playbackRate = 1.0;
@@ -769,7 +765,6 @@ videoPlayer.play().catch(e => {});
 positionSelect.addEventListener('change', () => {
 sendScreenInfo();
 updateVideoStyle();
-updateCalibrationStyle();
 saveSettings();
 });
 
@@ -808,12 +803,10 @@ videoPlayer.style.top = topPos + 'px';
 
 window.addEventListener('resize', () => {
 updateVideoStyle();
-updateCalibrationStyle();
 });
 if (window.visualViewport) {
 window.visualViewport.addEventListener('resize', () => {
 updateVideoStyle();
-updateCalibrationStyle();
 });
 }
 
@@ -823,6 +816,7 @@ videoPlayer.playbackRate = 1.0;
 videoPlayer.play().catch(e => {});
 playPauseBtn.textContent = '❚❚ Пауза';
 if (conn) conn.send(JSON.stringify({ type: 'play' }));
+if (isHost && videoModeSelect.value === 'stream') sendVideoStream();
 } else {
 videoPlayer.pause();
 playPauseBtn.textContent = '▶ Грати';
@@ -836,7 +830,7 @@ videoPlayer.currentTime = 0;
 videoPlayer.play().catch(e => {});
 playPauseBtn.textContent = '❚❚ Пауза';
 if (conn) conn.send(JSON.stringify({ type: 'restart' }));
-if (videoModeSelect.value === 'stream') sendVideoStream();
+if (isHost && videoModeSelect.value === 'stream') sendVideoStream();
 });
 
 fullscreenBtn.addEventListener('click', () => {
