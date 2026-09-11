@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<!-- Захист від кешування браузером та ярликами -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>ScreenParty Sync</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
 <style>
@@ -256,7 +260,7 @@ color: #888;
 
 <label>Режим відео:</label>
 <select id="videoModeSelect">
-<option value="local">Локальні файли на обох телефонах (з синхронізацією)</option>
+<option value="local">Локальні файли на обох телефонах (рекомендується)</option>
 <option value="stream">Трансляція відео з Головного на другий (P2P)</option>
 </select>
 
@@ -391,7 +395,6 @@ let conn = null;
 let isHost = false;
 let localVideoBlobUrl = null;
 
-// Локальні параметри калібрування (кожен телефон налаштовує тільки себе)
 let videoOffsetX = 0;
 let videoOffsetY = 0;
 let videoScaleMultiplier = 1.0;
@@ -547,7 +550,7 @@ return Math.floor(10000 + Math.random() * 90000).toString();
 }
 
 startHostBtn.addEventListener('click', () => {
-if (!localVideoBlobUrl) { alert('Виберіть відеофайл!'); return; }
+if (!localVideoBlobUrl && videoModeSelect.value === 'local') { alert('Виберіть відеофайл!'); return; }
 requestFullscreenNow();
 isHost = true;
 startHostPeer();
@@ -609,7 +612,7 @@ call.answer();
 call.on('stream', (remoteStream) => {
 videoPlayer.srcObject = remoteStream;
 setupCard.style.display = 'none';
-calibrationScreen.style.display = 'block'; // Спочатку показуємо калібрування на клієнті
+calibrationScreen.style.display = 'block';
 updateCalibrationStyle();
 videoPlayer.pause();
 playPauseBtn.textContent = '▶ Грати';
@@ -666,7 +669,7 @@ sendVideoStream();
 
 setTimeout(() => {
 setupCard.style.display = 'none';
-calibrationScreen.style.display = 'block'; // Автоматично відкриваємо екран калібрування при підключенні
+calibrationScreen.style.display = 'block';
 updateCalibrationStyle();
 
 if (videoModeSelect.value === 'local' || isHost) {
@@ -833,6 +836,7 @@ videoPlayer.currentTime = 0;
 videoPlayer.play().catch(e => {});
 playPauseBtn.textContent = '❚❚ Пауза';
 if (conn) conn.send(JSON.stringify({ type: 'restart' }));
+if (videoModeSelect.value === 'stream') sendVideoStream();
 });
 
 fullscreenBtn.addEventListener('click', () => {
@@ -977,7 +981,6 @@ document.getElementById('playerSaveBtn').addEventListener('click', () => {
 saveSettings();
 });
 
-// Кнопки управління для екрана калібрування (впливають ТІЛЬКИ на цей пристрій)
 document.getElementById('calibShiftUp').addEventListener('click', () => applyShift(0, -4));
 document.getElementById('calibShiftDown').addEventListener('click', () => applyShift(0, 4));
 document.getElementById('calibShiftLeft').addEventListener('click', () => applyShift(-4, 0));
@@ -993,7 +996,6 @@ updateCalibrationStyle();
 saveSettings();
 });
 
-// Кнопки управління з панелі плеєра (дублюють локальне калібрування)
 document.getElementById('shiftUpBtn').addEventListener('click', () => applyShift(0, -4));
 document.getElementById('shiftDownBtn').addEventListener('click', () => applyShift(0, 4));
 document.getElementById('shiftLeftBtn').addEventListener('click', () => applyShift(-4, 0));
