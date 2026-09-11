@@ -749,24 +749,24 @@ connectionStatus.textContent = 'Статус: Успішно підключен�
 preventScreenSleep();
 sendScreenInfo();
 
-if (isHost && videoModeSelect.value === 'stream') {
 setTimeout(() => {
-startStreaming();
-}, 1000);
-}
-
-setTimeout(() => {
-if (videoModeSelect.value === 'local') {
+// Переходимо на екран плеєра на обох пристроях одразу при з'єднанні
 setupCard.style.display = 'none';
 playerScreen.style.display = 'block';
-videoPlayer.currentTime = 0;
-videoPlayer.pause();
-playPauseBtn.textContent = '▶ Грати';
-}
 preventScreenSleep();
 updateVideoStyle();
 
 if (isHost) {
+videoPlayer.currentTime = 0;
+if (videoModeSelect.value === 'stream') {
+videoPlayer.play().catch(e => {});
+playPauseBtn.textContent = '❚❚ Пауза';
+startStreaming();
+} else {
+videoPlayer.pause();
+playPauseBtn.textContent = '▶ Грати';
+}
+
 if (syncInterval) clearInterval(syncInterval);
 syncInterval = setInterval(() => {
 if (conn && conn.open && !videoPlayer.paused && videoModeSelect.value === 'local') {
@@ -871,7 +871,7 @@ saveSettings();
 
 videoPlayer.addEventListener('loadedmetadata', () => {
 updateVideoStyle();
-if (!videoPlayer.srcObject) videoPlayer.pause();
+if (!videoPlayer.srcObject && !isHost) videoPlayer.pause();
 });
 
 function updateVideoStyle() {
