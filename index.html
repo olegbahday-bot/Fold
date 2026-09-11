@@ -634,6 +634,33 @@ location.reload();
 });
 }
 
+// Автоматичне відновлення та синхронізація при розблокуванні або повертанні в додаток
+document.addEventListener('visibilitychange', () => {
+if (!document.hidden) {
+console.log("Додаток активовано знову, перевірка з'єднання...");
+if (conn && conn.open) {
+if (isHost) {
+// Якщо хост повернувся, одразу відправляємо актуальний час
+conn.send(JSON.stringify({
+type: 'sync_time',
+time: videoPlayer.currentTime
+}));
+if (videoModeSelect.value === 'stream') {
+sendVideoStream();
+}
+} else {
+// Якщо клієнт повернувся, робимо так, щоб відео не було на паузі якщо грає
+if (videoPlayer.paused && !videoPlayer.ended) {
+videoPlayer.play().catch(e => {});
+}
+}
+} else {
+// Якщо з'єднання відпало в фоні — намагаємося перепідключитися або оновити статус
+connectionStatus.textContent = "Статус: З'єднання втрачено у фоні. Перезавантажте сторінку.";
+}
+}
+});
+
 positionSelect.addEventListener('change', () => {
 sendScreenInfo();
 updateVideoStyle();
@@ -785,7 +812,7 @@ hasSwiped = false;
 playerScreen.addEventListener('touchmove', (e) => {
 if (!isSwipingVolume || e.touches.length !== 1) return;
 const currentY = e.touches[0].clientY;
-const currentX = e.touches[0].clientX;
+const currentX = e.touches.clientX || e.touches[0].clientX;
 const diffY = touchStartY - currentY;
 const diffX = touchStartX - currentX;
 
