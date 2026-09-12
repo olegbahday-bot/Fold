@@ -1,5 +1,3425 @@
 <!DOCTYPE html>
-...
-весь готовий код
-...
-</html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>ScreenParty Sync Pro</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+
+<style>
+body {
+    margin: 0;
+    background: #121212;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 10px;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.card {
+    background: #1e1e1e;
+    padding: 20px;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    text-align: center;
+    z-index: 10;
+}
+
+h2 {
+    margin-top: 0;
+    font-size: 20px;
+    color: #4CAF50;
+}
+
+label {
+    display: block;
+    margin-top: 10px;
+    font-size: 13px;
+    color: #bbb;
+    text-align: left;
+}
+
+select,
+input,
+button {
+    width: 100%;
+    padding: 10px;
+    margin-top: 5px;
+    background: #2a2a2a;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 8px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+input[type="text"] {
+    letter-spacing: 4px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+button {
+    background: #4CAF50;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: background 0.2s;
+}
+
+button:hover {
+    background: #45a049;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.code-display {
+    background: #fff;
+    color: #000;
+    font-size: 28px;
+    font-weight: bold;
+    letter-spacing: 6px;
+    padding: 10px;
+    border-radius: 8px;
+    margin-top: 8px;
+    display: inline-block;
+}
+
+/* КАЛІБРУВАННЯ */
+
+#calibrationScreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0,0,0,0.85);
+    display: none;
+    z-index: 150;
+}
+
+.calib-box {
+    position: absolute;
+    top: 0;
+    left: 0;
+    border: 2px dashed #4CAF50;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: rgba(76, 175, 80, 0.08);
+    will-change: transform;
+}
+
+.calib-circle {
+    width: 140px;
+    height: 140px;
+    border: 3px solid #FFEB3B;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: #FFEB3B;
+    font-size: 12px;
+    font-weight: bold;
+    text-align: center;
+    background: rgba(255, 235, 59, 0.15);
+}
+
+/* ВІДЕО */
+
+#playerScreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: #000;
+    display: none;
+    z-index: 100;
+}
+
+video.vid-el {
+    position: absolute;
+    top: 0;
+    left: 0;
+    object-fit: fill;
+    will-change: transform;
+}
+
+/* ГУЧНІСТЬ */
+
+#volumeIndicator {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    padding: 14px 24px;
+    border-radius: 10px;
+    font-size: 18px;
+    font-weight: bold;
+    z-index: 300;
+    display: none;
+    pointer-events: none;
+}
+
+/* ПАНЕЛЬ */
+
+.controls {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.94);
+    padding: 8px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 200;
+    width: 96%;
+    max-width: 360px;
+    max-height: 60vh;
+    overflow-y: auto;
+    box-sizing: border-box;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+}
+
+/* ТАЙМЛАЙН */
+
+.timeline-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-bottom: 4px;
+    padding: 0 2px;
+    box-sizing: border-box;
+}
+
+.timeline-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #444;
+    height: 4px;
+    border-radius: 2px;
+    outline: none;
+    margin: 0;
+    padding: 0;
+}
+
+.timeline-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    background: #444;
+    border-radius: 2px;
+    border: none;
+}
+
+.timeline-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    background: #4CAF50;
+    cursor: pointer;
+    margin-top: -6px;
+}
+
+.timeline-slider::-moz-range-thumb {
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    background: #4CAF50;
+    cursor: pointer;
+    border: none;
+}
+
+.time-display {
+    font-size: 11px;
+    color: #bbb;
+    white-space: nowrap;
+    font-family: monospace;
+}
+
+.controls-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+}
+
+.controls button {
+    margin: 0;
+    padding: 7px 2px;
+    border-radius: 6px;
+    font-size: 11px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+    width: 100%;
+}
+
+.btn-full {
+    grid-column: span 3;
+}
+
+.reset-btn {
+    background-color: #444 !important;
+}
+
+.action-btn {
+    background-color: #2196F3 !important;
+}
+
+.scale-btn {
+    background-color: #E91E63 !important;
+}
+
+.fullscreen-btn {
+    background-color: #FF9800 !important;
+}
+
+.save-btn {
+    background-color: #FF5722 !important;
+}
+
+.file-btn {
+    background-color: #607D8B !important;
+}
+
+.calib-open-btn {
+    background-color: #9C27B0 !important;
+}
+
+.status {
+    font-size: 12px;
+    margin-top: 10px;
+    color: #888;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card" id="setupCard">
+
+    <h2>ScreenParty Sync</h2>
+
+    <label>Роль пристрою:</label>
+    <select id="roleSelect">
+        <option value="host">Головний (Host - S25+)</option>
+        <option value="client">Другий (Client - S10)</option>
+    </select>
+
+    <label>Позиція екрана:</label>
+    <select id="positionSelect">
+        <option value="left">Ліва частина (поруч зліва)</option>
+        <option value="right" selected>Права частина (поруч справа)</option>
+    </select>
+
+    <label>Режим відео:</label>
+    <select id="videoModeSelect">
+        <option value="stream">
+            Трансляція відео з Головного на другий (P2P)
+        </option>
+        <option value="local">
+            Локальні файли на обох телефонах
+        </option>
+    </select>
+
+    <div id="fileInputContainer">
+        <label>Виберіть відеофайл:</label>
+        <input type="file" id="videoInput" accept="video/*">
+    </div>
+
+    <div id="hostSection">
+
+        <button id="startHostBtn">
+            Створити кімнату та запустити
+        </button>
+
+        <div id="codeContainer" class="hidden">
+            <div style="font-size:12px;color:#aaa;margin-top:6px;">
+                Ваш 5-значний код:
+            </div>
+
+            <div id="hostCodeDisplay" class="code-display">
+                -----
+            </div>
+        </div>
+
+    </div>
+
+    <div id="clientSection" class="hidden">
+
+        <label for="clientCodeInput">
+            Введіть 5-значний код з головного телефону:
+        </label>
+
+        <input
+            type="text"
+            id="clientCodeInput"
+            maxlength="5"
+            placeholder="12345"
+        >
+
+        <button id="connectClientBtn">
+            Підключитися та запустити
+        </button>
+
+    </div>
+
+    <div class="status" id="connectionStatus">
+        Статус: Очікування налаштування
+    </div>
+
+</div>
+
+
+<!-- КАЛІБРУВАННЯ -->
+
+<div id="calibrationScreen">
+
+    <div id="calibBox" class="calib-box">
+        <div class="calib-circle">
+            HD 720p<br>
+            Центр
+        </div>
+    </div>
+
+    <div class="controls">
+
+        <div style="
+            font-size:11px;
+            text-align:center;
+            color:#FFEB3B;
+            font-weight:bold;
+            margin-bottom:2px;
+        ">
+            Калібрування цього екрана
+        </div>
+
+        <div class="controls-grid">
+
+            <button id="calibScalePlus" class="scale-btn">
+                🔍 Збільшити (+)
+            </button>
+
+            <button id="calibReset" class="reset-btn">
+                Скидання
+            </button>
+
+            <button id="calibScaleMinus" class="scale-btn">
+                🔍 Зменшити (-)
+            </button>
+
+            <button id="calibShiftLeft">
+                ◄ Ліворуч
+            </button>
+
+            <button id="calibShiftUp">
+                ▲ Вгору
+            </button>
+
+            <button id="calibShiftRight">
+                Праворуч ►
+            </button>
+
+            <button class="reset-btn" style="visibility:hidden;"></button>
+
+            <button id="calibShiftDown">
+                ▼ Вниз
+            </button>
+
+            <button class="reset-btn" style="visibility:hidden;"></button>
+
+            <button
+                id="closeCalibBtn"
+                class="save-btn btn-full"
+            >
+                ✔ Зберегти та сховати рамку
+            </button>
+
+        </div>
+    </div>
+
+</div>
+
+
+<!-- ВІДЕОПЛЕЄР -->
+
+<div id="playerScreen">
+
+    <video
+        id="videoPlayer"
+        class="vid-el"
+        playsinline
+        autoplay
+    ></video>
+
+    <div id="volumeIndicator">
+        🔊 100%
+    </div>
+
+    <input
+        type="file"
+        id="newVideoInput"
+        accept="video/*"
+        style="display:none;"
+    >
+
+    <div class="controls" id="playerControls">
+
+        <!-- ТАЙМЛАЙН ТЕПЕР НА ОБОХ ТЕЛЕФОНАХ -->
+        <div
+            class="timeline-container"
+            id="timelineContainer"
+        >
+
+            <input
+                type="range"
+                id="timelineRange"
+                class="timeline-slider"
+                min="0"
+                max="100"
+                value="0"
+                step="0.1"
+            >
+
+            <div
+                class="time-display"
+                id="timeDisplay"
+            >
+                00:00 / 00:00
+            </div>
+
+        </div>
+
+        <div style="
+            font-size:10px;
+            text-align:center;
+            color:#ddd;
+            font-weight:bold;
+            margin-bottom:2px;
+        ">
+            Керування відтворенням
+        </div>
+
+        <div class="controls-grid">
+
+            <button id="playPauseBtn" class="action-btn">
+                ▶ Грати
+            </button>
+
+            <button id="restartBtn" class="action-btn">
+                ↺ З початку
+            </button>
+
+            <button id="fullscreenBtn" class="fullscreen-btn">
+                ⛶ Екран
+            </button>
+
+            <button
+                id="changeVideoBtn"
+                class="file-btn btn-full"
+            >
+                📁 Вибрати інше відео
+            </button>
+
+            <button
+                id="openCalibOverlayBtn"
+                class="calib-open-btn btn-full"
+            >
+                📐 Увімкнути калібрування
+            </button>
+
+            <button
+                id="playerSaveBtn"
+                class="save-btn btn-full"
+            >
+                💾 Зберегти налаштування
+            </button>
+
+            <button id="scalePlusBtn" class="scale-btn">
+                🔍 Збільшити (+)
+            </button>
+
+            <button id="resetShiftBtn" class="reset-btn">
+                Скидання
+            </button>
+
+            <button id="scaleMinusBtn" class="scale-btn">
+                🔍 Зменшити (-)
+            </button>
+
+            <button id="shiftLeftBtn">
+                ◄ Ліворуч
+            </button>
+
+            <button id="shiftUpBtn">
+                ▲ Вгору
+            </button>
+
+            <button id="shiftRightBtn">
+                Праворуч ►
+            </button>
+
+            <button
+                class="reset-btn"
+                style="visibility:hidden;"
+            ></button>
+
+            <button id="shiftDownBtn">
+                ▼ Вниз
+            </button>
+
+            <button
+                class="reset-btn"
+                style="visibility:hidden;"
+            ></button>
+
+        </div>
+    </div>
+</div>
+
+
+<script>
+
+/* =========================================================
+   ЕЛЕМЕНТИ
+========================================================= */
+
+const setupCard = document.getElementById('setupCard');
+const playerScreen = document.getElementById('playerScreen');
+const calibrationScreen = document.getElementById('calibrationScreen');
+const calibBox = document.getElementById('calibBox');
+
+const videoPlayer = document.getElementById('videoPlayer');
+const playerControls = document.getElementById('playerControls');
+const newVideoInput = document.getElementById('newVideoInput');
+
+const timelineContainer =
+    document.getElementById('timelineContainer');
+
+const roleSelect =
+    document.getElementById('roleSelect');
+
+const positionSelect =
+    document.getElementById('positionSelect');
+
+const videoModeSelect =
+    document.getElementById('videoModeSelect');
+
+const fileInputContainer =
+    document.getElementById('fileInputContainer');
+
+const videoInput =
+    document.getElementById('videoInput');
+
+const hostSection =
+    document.getElementById('hostSection');
+
+const clientSection =
+    document.getElementById('clientSection');
+
+const connectionStatus =
+    document.getElementById('connectionStatus');
+
+const openCalibOverlayBtn =
+    document.getElementById('openCalibOverlayBtn');
+
+const closeCalibBtn =
+    document.getElementById('closeCalibBtn');
+
+const startHostBtn =
+    document.getElementById('startHostBtn');
+
+const codeContainer =
+    document.getElementById('codeContainer');
+
+const hostCodeDisplay =
+    document.getElementById('hostCodeDisplay');
+
+const clientCodeInput =
+    document.getElementById('clientCodeInput');
+
+const connectClientBtn =
+    document.getElementById('connectClientBtn');
+
+const playPauseBtn =
+    document.getElementById('playPauseBtn');
+
+const restartBtn =
+    document.getElementById('restartBtn');
+
+const fullscreenBtn =
+    document.getElementById('fullscreenBtn');
+
+const timelineRange =
+    document.getElementById('timelineRange');
+
+const timeDisplay =
+    document.getElementById('timeDisplay');
+
+const volumeIndicator =
+    document.getElementById('volumeIndicator');
+
+const changeVideoBtn =
+    document.getElementById('changeVideoBtn');
+
+
+/* =========================================================
+   СТАН
+========================================================= */
+
+let peer = null;
+let conn = null;
+let activeCall = null;
+
+let isHost = false;
+
+let localVideoBlobUrl = null;
+
+let audioCtx = null;
+let silentOscillator = null;
+
+let wakeLock = null;
+let wakeLockRetryTimer = null;
+let wakeLockMonitor = null;
+
+let videoOffsetX = 0;
+let videoOffsetY = 0;
+let videoScaleMultiplier = 1.0;
+
+let syncInterval = null;
+
+let partnerWidth = 0;
+let partnerHeight = 0;
+
+let isDraggingTimeline = false;
+let isSwipingVolume = false;
+
+let touchStartY = 0;
+let touchStartX = 0;
+let touchStartVolume = 1.0;
+
+let hasSwiped = false;
+let volumeTimeout = null;
+
+let ignoreSeekEvent = false;
+
+
+/* =========================================================
+   PEERJS
+========================================================= */
+
+const peerOptions = {
+
+    debug: 1,
+
+    config: {
+        iceServers: [
+            {
+                urls: 'stun:stun.l.google.com:19302'
+            },
+            {
+                urls: 'stun:stun1.l.google.com:19302'
+            }
+        ]
+    }
+};
+
+
+/* =========================================================
+   WAKE LOCK
+========================================================= */
+
+async function requestWakeLock() {
+
+    if (!('wakeLock' in navigator)) {
+        return;
+    }
+
+    if (document.visibilityState !== 'visible') {
+        return;
+    }
+
+    try {
+
+        if (wakeLock && !wakeLock.released) {
+            return;
+        }
+
+        wakeLock = await navigator.wakeLock.request('screen');
+
+        wakeLock.addEventListener('release', () => {
+
+            wakeLock = null;
+
+            scheduleWakeLockRetry();
+
+        });
+
+    } catch (e) {
+
+        scheduleWakeLockRetry();
+
+    }
+}
+
+
+function scheduleWakeLockRetry() {
+
+    if (wakeLockRetryTimer) {
+        clearTimeout(wakeLockRetryTimer);
+    }
+
+    wakeLockRetryTimer = setTimeout(() => {
+
+        if (
+            document.visibilityState === 'visible' &&
+            playerScreen.style.display !== 'none'
+        ) {
+            requestWakeLock();
+        }
+
+    }, 1500);
+}
+
+
+function startWakeLockMonitor() {
+
+    if (wakeLockMonitor) {
+        clearInterval(wakeLockMonitor);
+    }
+
+    wakeLockMonitor = setInterval(() => {
+
+        if (
+            document.visibilityState === 'visible' &&
+            playerScreen.style.display !== 'none'
+        ) {
+            requestWakeLock();
+        }
+
+    }, 10000);
+}
+
+
+/* =========================================================
+   ДОДАТКОВИЙ ANTI-SLEEP
+========================================================= */
+
+function startAntiSleepAudio() {
+
+    try {
+
+        if (!audioCtx) {
+
+            const AudioContextClass =
+                window.AudioContext ||
+                window.webkitAudioContext;
+
+            if (AudioContextClass) {
+                audioCtx = new AudioContextClass();
+            }
+        }
+
+        if (
+            audioCtx &&
+            audioCtx.state === 'suspended'
+        ) {
+            audioCtx.resume().catch(() => {});
+        }
+
+        if (
+            audioCtx &&
+            !silentOscillator
+        ) {
+
+            const gain =
+                audioCtx.createGain();
+
+            gain.gain.value = 0.0001;
+
+            const osc =
+                audioCtx.createOscillator();
+
+            osc.frequency.value = 100;
+
+            osc.connect(gain);
+
+            gain.connect(audioCtx.destination);
+
+            osc.start();
+
+            silentOscillator = gain;
+        }
+
+    } catch (e) {}
+
+    requestWakeLock();
+}
+
+
+/* =========================================================
+   НАЛАШТУВАННЯ
+========================================================= */
+
+function loadSavedSettings() {
+
+    const savedScale =
+        localStorage.getItem('sp_scale');
+
+    const savedX =
+        localStorage.getItem('sp_offsetX');
+
+    const savedY =
+        localStorage.getItem('sp_offsetY');
+
+    const savedPos =
+        localStorage.getItem('sp_position');
+
+
+    if (savedScale !== null) {
+
+        videoScaleMultiplier =
+            Math.max(
+                0.1,
+                Math.min(
+                    5.0,
+                    parseFloat(savedScale)
+                )
+            );
+    }
+
+
+    if (savedX !== null) {
+
+        videoOffsetX =
+            Math.max(
+                -3000,
+                Math.min(
+                    3000,
+                    parseFloat(savedX)
+                )
+            );
+    }
+
+
+    if (savedY !== null) {
+
+        videoOffsetY =
+            Math.max(
+                -3000,
+                Math.min(
+                    3000,
+                    parseFloat(savedY)
+                )
+            );
+    }
+
+
+    if (
+        savedPos === 'left' ||
+        savedPos === 'right'
+    ) {
+        positionSelect.value = savedPos;
+    }
+}
+
+loadSavedSettings();
+
+
+function saveSettings() {
+
+    localStorage.setItem(
+        'sp_scale',
+        videoScaleMultiplier
+    );
+
+    localStorage.setItem(
+        'sp_offsetX',
+        videoOffsetX
+    );
+
+    localStorage.setItem(
+        'sp_offsetY',
+        videoOffsetY
+    );
+
+    localStorage.setItem(
+        'sp_position',
+        positionSelect.value
+    );
+
+
+    const saveBtn =
+        document.getElementById('playerSaveBtn');
+
+    if (saveBtn) {
+
+        const originalText =
+            saveBtn.textContent;
+
+        saveBtn.textContent =
+            '✔ Збережено!';
+
+        setTimeout(() => {
+
+            saveBtn.textContent =
+                originalText;
+
+        }, 1200);
+    }
+}
+
+
+/* =========================================================
+   ВИДИМІСТЬ НАЛАШТУВАНЬ
+========================================================= */
+
+function updateInputsVisibility() {
+
+    const role =
+        roleSelect.value;
+
+    const mode =
+        videoModeSelect.value;
+
+
+    if (role === 'host') {
+
+        hostSection.classList.remove('hidden');
+
+        clientSection.classList.add('hidden');
+
+        fileInputContainer.style.display =
+            'block';
+
+        changeVideoBtn.style.display =
+            'block';
+
+    } else {
+
+        hostSection.classList.add('hidden');
+
+        clientSection.classList.remove('hidden');
+
+        fileInputContainer.style.display =
+            mode === 'stream'
+                ? 'none'
+                : 'block';
+
+        changeVideoBtn.style.display =
+            'none';
+    }
+}
+
+roleSelect.addEventListener(
+    'change',
+    updateInputsVisibility
+);
+
+videoModeSelect.addEventListener(
+    'change',
+    updateInputsVisibility
+);
+
+updateInputsVisibility();
+
+
+/* =========================================================
+   FULLSCREEN
+========================================================= */
+
+function requestFullscreenNow() {
+
+    const elem =
+        document.documentElement;
+
+    if (!document.fullscreenElement) {
+
+        if (elem.requestFullscreen) {
+
+            elem.requestFullscreen()
+                .catch(() => {});
+        }
+    }
+}
+
+
+/* =========================================================
+   КАЛІБРУВАННЯ
+========================================================= */
+
+openCalibOverlayBtn.addEventListener(
+    'click',
+    () => {
+
+        calibrationScreen.style.display =
+            'block';
+
+        updateCalibrationStyle();
+    }
+);
+
+
+closeCalibBtn.addEventListener(
+    'click',
+    () => {
+
+        saveSettings();
+
+        calibrationScreen.style.display =
+            'none';
+
+        updateVideoStyle();
+
+        openCalibOverlayBtn.style.display =
+            'none';
+    }
+);
+
+
+function updateCalibrationStyle() {
+
+    const myWidth =
+        window.innerWidth;
+
+    const pWidth =
+        partnerWidth > 0
+            ? partnerWidth
+            : myWidth;
+
+    const position =
+        positionSelect.value;
+
+    const combinedWidth =
+        myWidth + pWidth;
+
+    const finalWidth =
+        combinedWidth *
+        videoScaleMultiplier;
+
+    const finalHeight =
+        finalWidth / (16 / 9);
+
+    const leftPos =
+        position === 'left'
+            ? videoOffsetX
+            : videoOffsetX - pWidth;
+
+
+    calibBox.style.width =
+        finalWidth + 'px';
+
+    calibBox.style.height =
+        finalHeight + 'px';
+
+    calibBox.style.transform =
+        `translate3d(${leftPos}px, ${videoOffsetY}px, 0)`;
+}
+
+
+/* =========================================================
+   ВІДЕОФАЙЛ
+========================================================= */
+
+videoInput.addEventListener(
+    'change',
+    (e) => {
+
+        const file =
+            e.target.files[0];
+
+        if (!file) return;
+
+        localVideoBlobUrl =
+            URL.createObjectURL(file);
+
+        videoPlayer.src =
+            localVideoBlobUrl;
+
+        videoPlayer.muted =
+            false;
+
+        videoPlayer.volume =
+            1.0;
+
+        videoPlayer.pause();
+
+        connectionStatus.textContent =
+            'Статус: Відео завантажено. Готово.';
+    }
+);
+
+
+/* =========================================================
+   НОВЕ ВІДЕО
+========================================================= */
+
+changeVideoBtn.addEventListener(
+    'click',
+    () => {
+
+        if (isHost) {
+            newVideoInput.click();
+        }
+    }
+);
+
+
+newVideoInput.addEventListener(
+    'change',
+    (e) => {
+
+        const file =
+            e.target.files[0];
+
+        if (!file || !isHost) {
+            return;
+        }
+
+        localVideoBlobUrl =
+            URL.createObjectURL(file);
+
+        videoPlayer.src =
+            localVideoBlobUrl;
+
+        videoPlayer.load();
+
+        updateVideoStyle();
+
+        videoPlayer.currentTime =
+            0;
+
+        videoPlayer.muted =
+            false;
+
+        videoPlayer.volume =
+            1.0;
+
+        videoPlayer.pause();
+
+
+        if (conn && conn.open) {
+
+            sendVideoInfo();
+
+            sendSyncState();
+        }
+
+
+        if (
+            videoModeSelect.value ===
+            'stream'
+        ) {
+
+            setTimeout(
+                startStreaming,
+                500
+            );
+        }
+    }
+);
+
+
+/* =========================================================
+   START HOST
+========================================================= */
+
+startHostBtn.addEventListener(
+    'click',
+    () => {
+
+        startAntiSleepAudio();
+
+        if (!localVideoBlobUrl) {
+
+            alert(
+                'Виберіть відеофайл!'
+            );
+
+            return;
+        }
+
+        requestFullscreenNow();
+
+        isHost = true;
+
+        startHostPeer();
+    }
+);
+
+
+/* =========================================================
+   HOST PEER
+========================================================= */
+
+function startHostPeer() {
+
+    if (peer) {
+
+        try {
+            peer.destroy();
+        } catch (e) {}
+
+    }
+
+
+    const code =
+        Math.floor(
+            10000 +
+            Math.random() * 90000
+        ).toString();
+
+
+    connectionStatus.textContent =
+        'Статус: Створення кімнати...';
+
+
+    peer =
+        new Peer(
+            'sp-' + code,
+            peerOptions
+        );
+
+
+    peer.on(
+        'open',
+        () => {
+
+            hostCodeDisplay.textContent =
+                code;
+
+            codeContainer.classList.remove(
+                'hidden'
+            );
+
+            connectionStatus.textContent =
+                'Статус: Кімнату створено! Очікування другого телефону...';
+
+        }
+    );
+
+
+    peer.on(
+        'connection',
+        (connection) => {
+
+            conn = connection;
+
+            setupConnection();
+        }
+    );
+
+
+    peer.on(
+        'call',
+        (call) => {
+
+            call.answer();
+        }
+    );
+}
+
+
+/* =========================================================
+   CLIENT
+========================================================= */
+
+connectClientBtn.addEventListener(
+    'click',
+    () => {
+
+        startAntiSleepAudio();
+
+        const mode =
+            videoModeSelect.value;
+
+
+        if (
+            mode === 'local' &&
+            !localVideoBlobUrl
+        ) {
+
+            alert(
+                'Виберіть відеофайл!'
+            );
+
+            return;
+        }
+
+
+        const code =
+            clientCodeInput.value.trim();
+
+
+        if (code.length !== 5) {
+
+            alert(
+                'Введіть 5-значний код!'
+            );
+
+            return;
+        }
+
+
+        if (peer) {
+
+            try {
+                peer.destroy();
+            } catch (e) {}
+
+        }
+
+
+        requestFullscreenNow();
+
+        isHost = false;
+
+        connectionStatus.textContent =
+            'Статус: Підключення...';
+
+
+        peer =
+            new Peer(
+                peerOptions
+            );
+
+
+        peer.on(
+            'open',
+            () => {
+
+                conn =
+                    peer.connect(
+                        'sp-' + code
+                    );
+
+                setupConnection();
+            }
+        );
+
+
+        peer.on(
+            'call',
+            (call) => {
+
+                call.answer();
+
+                call.on(
+                    'stream',
+                    (remoteStream) => {
+
+                        videoPlayer.srcObject =
+                            remoteStream;
+
+                        videoPlayer.muted =
+                            false;
+
+                        videoPlayer.volume =
+                            1.0;
+
+                        videoPlayer.play()
+                            .catch(() => {});
+
+                        startAntiSleepAudio();
+                    }
+                );
+            }
+        );
+    }
+);
+
+
+/* =========================================================
+   SCREEN INFO
+========================================================= */
+
+function sendScreenInfo() {
+
+    if (
+        conn &&
+        conn.open
+    ) {
+
+        conn.send(
+            JSON.stringify({
+                type: 'screen_info',
+                width: window.innerWidth,
+                height: window.innerHeight,
+                position: positionSelect.value,
+                videoMode: videoModeSelect.value
+            })
+        );
+    }
+}
+
+
+/* =========================================================
+   VIDEO INFO
+========================================================= */
+
+function sendVideoInfo() {
+
+    if (
+        !conn ||
+        !conn.open ||
+        !isHost
+    ) {
+        return;
+    }
+
+    const duration =
+        isFinite(videoPlayer.duration)
+            ? videoPlayer.duration
+            : 0;
+
+
+    conn.send(
+        JSON.stringify({
+            type: 'video_info',
+            duration: duration
+        })
+    );
+}
+
+
+/* =========================================================
+   SYNC STATE
+========================================================= */
+
+function sendSyncState() {
+
+    if (
+        !conn ||
+        !conn.open ||
+        !isHost
+    ) {
+        return;
+    }
+
+
+    conn.send(
+        JSON.stringify({
+            type: 'sync_state',
+            time: videoPlayer.currentTime || 0,
+            paused: videoPlayer.paused,
+            duration:
+                isFinite(videoPlayer.duration)
+                    ? videoPlayer.duration
+                    : 0,
+            sentAt: Date.now()
+        })
+    );
+}
+
+
+/* =========================================================
+   STREAMING
+========================================================= */
+
+function startStreaming() {
+
+    if (
+        !isHost ||
+        videoModeSelect.value !== 'stream'
+    ) {
+        return;
+    }
+
+
+    try {
+
+        const stream =
+            videoPlayer.captureStream
+                ? videoPlayer.captureStream()
+                : videoPlayer.mozCaptureStream();
+
+
+        if (
+            stream &&
+            conn &&
+            conn.open &&
+            !activeCall
+        ) {
+
+            activeCall =
+                peer.call(
+                    conn.peer,
+                    stream
+                );
+
+            activeCall.on(
+                'close',
+                () => {
+                    activeCall = null;
+                }
+            );
+        }
+
+    } catch (e) {}
+}
+
+
+/* =========================================================
+   CONNECTION
+========================================================= */
+
+function setupConnection() {
+
+    const handleReady = () => {
+
+        connectionStatus.textContent =
+            'Статус: Підключено!';
+
+
+        sendScreenInfo();
+
+
+        setTimeout(
+            () => {
+
+                setupCard.style.display =
+                    'none';
+
+                playerScreen.style.display =
+                    'block';
+
+
+                updateVideoStyle();
+
+
+                videoPlayer.muted =
+                    false;
+
+                videoPlayer.volume =
+                    1.0;
+
+
+                /*
+                 * ТАЙМЛАЙН ЗАВЖДИ ВИДИМИЙ
+                 * НА ОБОХ ТЕЛЕФОНАХ
+                 */
+
+                timelineContainer.style.display =
+                    'flex';
+
+
+                startAntiSleepAudio();
+
+                startWakeLockMonitor();
+
+
+                if (isHost) {
+
+                    videoPlayer.currentTime =
+                        0;
+
+                    videoPlayer.play()
+                        .catch(() => {});
+
+                    playPauseBtn.textContent =
+                        '❚❚ Пауза';
+
+
+                    sendVideoInfo();
+
+                    if (
+                        videoModeSelect.value ===
+                        'stream'
+                    ) {
+
+                        startStreaming();
+                    }
+
+                } else {
+
+                    if (
+                        videoModeSelect.value ===
+                        'local'
+                    ) {
+
+                        videoPlayer.play()
+                            .catch(() => {});
+
+                        playPauseBtn.textContent =
+                            '❚❚ Пауза';
+                    }
+                }
+
+
+                /*
+                 * СИНХРОНІЗАЦІЯ КОЖНІ 500 МС
+                 */
+
+                if (syncInterval) {
+                    clearInterval(syncInterval);
+                }
+
+
+                syncInterval =
+                    setInterval(
+                        () => {
+
+                            if (
+                                conn &&
+                                conn.open &&
+                                isHost
+                            ) {
+
+                                sendSyncState();
+                            }
+
+                        },
+                        500
+                    );
+
+
+            },
+            300
+        );
+    };
+
+
+    if (conn.open) {
+
+        handleReady();
+
+    } else {
+
+        conn.on(
+            'open',
+            handleReady
+        );
+    }
+
+
+    conn.on(
+        'data',
+        (data) => {
+
+            try {
+
+                const msg =
+                    JSON.parse(data);
+
+
+                /* SCREEN INFO */
+
+                if (
+                    msg.type ===
+                    'screen_info'
+                ) {
+
+                    partnerWidth =
+                        msg.width;
+
+                    partnerHeight =
+                        msg.height;
+
+
+                    if (
+                        msg.videoMode &&
+                        msg.videoMode !==
+                        videoModeSelect.value
+                    ) {
+
+                        videoModeSelect.value =
+                            msg.videoMode;
+
+                        updateInputsVisibility();
+                    }
+
+
+                    updateVideoStyle();
+
+                    sendScreenInfo();
+                }
+
+
+                /* VIDEO INFO */
+
+                else if (
+                    msg.type ===
+                    'video_info'
+                ) {
+
+                    if (
+                        !isHost &&
+                        msg.duration > 0
+                    ) {
+
+                        timelineRange.max =
+                            100;
+
+                        timeDisplay.textContent =
+                            `${formatTime(
+                                videoPlayer.currentTime || 0
+                            )} / ${formatTime(
+                                msg.duration
+                            )}`;
+                    }
+                }
+
+
+                /* PLAY */
+
+                else if (
+                    msg.type === 'play'
+                ) {
+
+                    videoPlayer.playbackRate =
+                        1.0;
+
+                    videoPlayer.muted =
+                        false;
+
+                    videoPlayer.play()
+                        .catch(() => {});
+
+                    playPauseBtn.textContent =
+                        '❚❚ Пауза';
+
+                    startAntiSleepAudio();
+
+
+                    if (
+                        isHost &&
+                        videoModeSelect.value ===
+                        'stream'
+                    ) {
+
+                        startStreaming();
+                    }
+                }
+
+
+                /* PAUSE */
+
+                else if (
+                    msg.type === 'pause'
+                ) {
+
+                    videoPlayer.playbackRate =
+                        1.0;
+
+                    videoPlayer.pause();
+
+                    playPauseBtn.textContent =
+                        '▶ Грати';
+                }
+
+
+                /* RESTART */
+
+                else if (
+                    msg.type === 'restart'
+                ) {
+
+                    videoPlayer.playbackRate =
+                        1.0;
+
+                    videoPlayer.muted =
+                        false;
+
+                    ignoreSeekEvent = true;
+
+                    try {
+                        videoPlayer.currentTime = 0;
+                    } catch (e) {}
+
+                    ignoreSeekEvent = false;
+
+                    videoPlayer.play()
+                        .catch(() => {});
+
+                    playPauseBtn.textContent =
+                        '❚❚ Пауза';
+
+                    startAntiSleepAudio();
+
+
+                    if (
+                        isHost &&
+                        videoModeSelect.value ===
+                        'stream'
+                    ) {
+
+                        startStreaming();
+                    }
+                }
+
+
+                /* SEEK */
+
+                else if (
+                    msg.type ===
+                    'seek'
+                ) {
+
+                    if (
+                        isFinite(msg.time)
+                    ) {
+
+                        /*
+                         * У stream режимі S10
+                         * не намагається керувати
+                         * currentTime MediaStream.
+                         *
+                         * Host керує реальним відео.
+                         */
+
+                        if (
+                            !videoPlayer.srcObject ||
+                            isHost
+                        ) {
+
+                            ignoreSeekEvent =
+                                true;
+
+                            try {
+
+                                videoPlayer.currentTime =
+                                    Math.max(
+                                        0,
+                                        msg.time
+                                    );
+
+                            } catch (e) {}
+
+                            ignoreSeekEvent =
+                                false;
+                        }
+                    }
+                }
+
+
+                /* SEEK REQUEST */
+
+                else if (
+                    msg.type ===
+                    'seek_request'
+                ) {
+
+                    /*
+                     * Тільки Host приймає
+                     * перемотування від Client.
+                     */
+
+                    if (isHost) {
+
+                        const newTime =
+                            Math.max(
+                                0,
+                                Math.min(
+                                    isFinite(
+                                        videoPlayer.duration
+                                    )
+                                        ? videoPlayer.duration
+                                        : msg.time,
+                                    msg.time
+                                )
+                            );
+
+
+                        ignoreSeekEvent =
+                            true;
+
+                        try {
+                            videoPlayer.currentTime =
+                                newTime;
+                        } catch (e) {}
+
+                        ignoreSeekEvent =
+                            false;
+
+
+                        if (
+                            conn &&
+                            conn.open
+                        ) {
+
+                            conn.send(
+                                JSON.stringify({
+                                    type: 'seek',
+                                    time: newTime
+                                })
+                            );
+                        }
+
+
+                        sendSyncState();
+                    }
+                }
+
+
+                /* SYNC */
+
+                else if (
+                    msg.type ===
+                    'sync_state' &&
+                    !isHost
+                ) {
+
+                    if (
+                        msg.duration > 0 &&
+                        videoPlayer.duration
+                    ) {
+
+                        timeDisplay.textContent =
+                            `${formatTime(
+                                videoPlayer.currentTime
+                            )} / ${formatTime(
+                                msg.duration
+                            )}`;
+                    }
+
+
+                    /*
+                     * Stream:
+                     * currentTime може бути
+                     * доступний лише як приблизна
+                     * позиція, тому не робимо
+                     * жорсткий seek.
+                     */
+
+                    if (
+                        videoPlayer.srcObject
+                    ) {
+
+                        if (
+                            !videoPlayer.paused &&
+                            !msg.paused
+                        ) {
+
+                            const diff =
+                                videoPlayer.currentTime -
+                                msg.time;
+
+
+                            if (
+                                Math.abs(diff) >
+                                0.08
+                            ) {
+
+                                if (
+                                    diff > 0
+                                ) {
+
+                                    videoPlayer.playbackRate =
+                                        0.985;
+
+                                } else {
+
+                                    videoPlayer.playbackRate =
+                                        1.015;
+                                }
+
+                            } else {
+
+                                videoPlayer.playbackRate =
+                                    1.0;
+                            }
+                        }
+
+                        return;
+                    }
+
+
+                    /*
+                     * LOCAL MODE
+                     */
+
+                    if (
+                        !videoPlayer.paused &&
+                        !msg.paused &&
+                        !isDraggingTimeline
+                    ) {
+
+                        const diff =
+                            videoPlayer.currentTime -
+                            msg.time;
+
+
+                        /*
+                         * Великий зсув:
+                         * точне вирівнювання.
+                         */
+
+                        if (
+                            Math.abs(diff) >
+                            0.35
+                        ) {
+
+                            ignoreSeekEvent =
+                                true;
+
+                            try {
+
+                                videoPlayer.currentTime =
+                                    msg.time;
+
+                            } catch (e) {}
+
+                            ignoreSeekEvent =
+                                false;
+
+                            videoPlayer.playbackRate =
+                                1.0;
+                        }
+
+
+                        /*
+                         * Малий зсув:
+                         * дуже м'яке прискорення
+                         */
+
+                        else if (
+                            diff > 0.06
+                        ) {
+
+                            videoPlayer.playbackRate =
+                                0.985;
+
+                        }
+
+
+                        else if (
+                            diff < -0.06
+                        ) {
+
+                            videoPlayer.playbackRate =
+                                1.015;
+
+                        }
+
+
+                        else {
+
+                            videoPlayer.playbackRate =
+                                1.0;
+                        }
+                    }
+
+
+                    /*
+                     * Якщо Host поставив на паузу
+                     */
+
+                    if (
+                        msg.paused &&
+                        !videoPlayer.paused
+                    ) {
+
+                        videoPlayer.pause();
+
+                        videoPlayer.playbackRate =
+                            1.0;
+
+                        playPauseBtn.textContent =
+                            '▶ Грати';
+                    }
+
+
+                    /*
+                     * Якщо Host запустив
+                     */
+
+                    if (
+                        !msg.paused &&
+                        videoPlayer.paused
+                    ) {
+
+                        videoPlayer.play()
+                            .catch(() => {});
+
+                        playPauseBtn.textContent =
+                            '❚❚ Пауза';
+                    }
+                }
+
+            } catch (e) {}
+
+        }
+    );
+
+
+    conn.on(
+        'close',
+        () => {
+
+            if (syncInterval) {
+                clearInterval(syncInterval);
+            }
+
+            if (wakeLockMonitor) {
+                clearInterval(wakeLockMonitor);
+            }
+
+            alert(
+                "З'єднання закрито"
+            );
+
+            location.reload();
+        }
+    );
+}
+
+
+/* =========================================================
+   VISIBILITY
+========================================================= */
+
+document.addEventListener(
+    'visibilitychange',
+    () => {
+
+        if (
+            document.visibilityState ===
+            'visible'
+        ) {
+
+            startAntiSleepAudio();
+
+            requestWakeLock();
+
+            startWakeLockMonitor();
+
+
+            if (
+                conn &&
+                conn.open &&
+                isHost &&
+                videoModeSelect.value ===
+                'stream'
+            ) {
+
+                startStreaming();
+            }
+        }
+    }
+);
+
+
+/* =========================================================
+   POSITION
+========================================================= */
+
+positionSelect.addEventListener(
+    'change',
+    () => {
+
+        sendScreenInfo();
+
+        updateVideoStyle();
+
+        saveSettings();
+    }
+);
+
+
+/* =========================================================
+   VIDEO STYLE
+========================================================= */
+
+videoPlayer.addEventListener(
+    'loadedmetadata',
+    () => {
+
+        updateVideoStyle();
+
+        if (isHost) {
+            sendVideoInfo();
+        }
+    }
+);
+
+
+function updateVideoStyle() {
+
+    const myWidth =
+        window.innerWidth;
+
+    const pWidth =
+        partnerWidth > 0
+            ? partnerWidth
+            : myWidth;
+
+
+    const position =
+        positionSelect.value;
+
+
+    const videoAspect =
+        (
+            videoPlayer.videoWidth &&
+            videoPlayer.videoHeight
+        )
+            ? videoPlayer.videoWidth /
+              videoPlayer.videoHeight
+            : 16 / 9;
+
+
+    const combinedWidth =
+        myWidth + pWidth;
+
+
+    const finalWidth =
+        combinedWidth *
+        videoScaleMultiplier;
+
+
+    const finalHeight =
+        finalWidth /
+        videoAspect;
+
+
+    const leftPos =
+        position === 'left'
+            ? videoOffsetX
+            : videoOffsetX - pWidth;
+
+
+    videoPlayer.style.width =
+        finalWidth + 'px';
+
+    videoPlayer.style.height =
+        finalHeight + 'px';
+
+
+    videoPlayer.style.transform =
+        `translate3d(${leftPos}px, ${videoOffsetY}px, 0)`;
+}
+
+
+window.addEventListener(
+    'resize',
+    updateVideoStyle
+);
+
+
+if (window.visualViewport) {
+
+    window.visualViewport.addEventListener(
+        'resize',
+        updateVideoStyle
+    );
+}
+
+
+/* =========================================================
+   PLAY / PAUSE
+========================================================= */
+
+playPauseBtn.addEventListener(
+    'click',
+    () => {
+
+        startAntiSleepAudio();
+
+
+        if (isHost) {
+
+            if (videoPlayer.paused) {
+
+                videoPlayer.playbackRate =
+                    1.0;
+
+                videoPlayer.muted =
+                    false;
+
+                videoPlayer.play()
+                    .catch(() => {});
+
+                playPauseBtn.textContent =
+                    '❚❚ Пауза';
+
+
+                if (conn && conn.open) {
+
+                    conn.send(
+                        JSON.stringify({
+                            type: 'play'
+                        })
+                    );
+                }
+
+
+                if (
+                    videoModeSelect.value ===
+                    'stream'
+                ) {
+
+                    startStreaming();
+                }
+
+            } else {
+
+                videoPlayer.pause();
+
+                playPauseBtn.textContent =
+                    '▶ Грати';
+
+
+                if (conn && conn.open) {
+
+                    conn.send(
+                        JSON.stringify({
+                            type: 'pause'
+                        })
+                    );
+                }
+            }
+
+
+            sendSyncState();
+
+        } else {
+
+            /*
+             * S10 не змінює стан самостійно.
+             * Він просить Host.
+             */
+
+            if (conn && conn.open) {
+
+                conn.send(
+                    JSON.stringify({
+                        type:
+                            videoPlayer.paused
+                                ? 'play_request'
+                                : 'pause_request'
+                    })
+                );
+            }
+        }
+    }
+);
+
+
+/* =========================================================
+   REQUEST PLAY / PAUSE FROM CLIENT
+========================================================= */
+
+function handlePlaybackRequest(msg) {
+
+    if (!isHost) {
+        return;
+    }
+
+
+    if (
+        msg.type ===
+        'play_request'
+    ) {
+
+        videoPlayer.playbackRate =
+            1.0;
+
+        videoPlayer.play()
+            .catch(() => {});
+
+        playPauseBtn.textContent =
+            '❚❚ Пауза';
+
+
+        if (conn && conn.open) {
+
+            conn.send(
+                JSON.stringify({
+                    type: 'play'
+                })
+            );
+        }
+
+
+        if (
+            videoModeSelect.value ===
+            'stream'
+        ) {
+
+            startStreaming();
+        }
+
+    }
+
+
+    else if (
+        msg.type ===
+        'pause_request'
+    ) {
+
+        videoPlayer.pause();
+
+        videoPlayer.playbackRate =
+            1.0;
+
+        playPauseBtn.textContent =
+            '▶ Грати';
+
+
+        if (conn && conn.open) {
+
+            conn.send(
+                JSON.stringify({
+                    type: 'pause'
+                })
+            );
+        }
+    }
+
+
+    sendSyncState();
+}
+
+
+/*
+ * Додаємо обробку play_request/pause_request
+ * до існуючого data-потоку.
+ *
+ * Для цього використовуємо окремий
+ * listener нижче.
+ */
+
+function setupPlaybackRequestListener() {
+
+    if (!conn) return;
+
+    conn.on(
+        'data',
+        (data) => {
+
+            try {
+
+                const msg =
+                    JSON.parse(data);
+
+                if (
+                    msg.type ===
+                    'play_request' ||
+                    msg.type ===
+                    'pause_request'
+                ) {
+
+                    handlePlaybackRequest(
+                        msg
+                    );
+                }
+
+            } catch (e) {}
+        }
+    );
+}
+
+
+/* =========================================================
+   RESTART
+========================================================= */
+
+restartBtn.addEventListener(
+    'click',
+    () => {
+
+        startAntiSleepAudio();
+
+
+        if (!isHost) {
+
+            if (conn && conn.open) {
+
+                conn.send(
+                    JSON.stringify({
+                        type:
+                            'restart_request'
+                    })
+                );
+            }
+
+            return;
+        }
+
+
+        videoPlayer.playbackRate =
+            1.0;
+
+        videoPlayer.muted =
+            false;
+
+
+        ignoreSeekEvent =
+            true;
+
+        try {
+            videoPlayer.currentTime =
+                0;
+        } catch (e) {}
+
+        ignoreSeekEvent =
+            false;
+
+
+        videoPlayer.play()
+            .catch(() => {});
+
+        playPauseBtn.textContent =
+            '❚❚ Пауза';
+
+
+        if (conn && conn.open) {
+
+            conn.send(
+                JSON.stringify({
+                    type: 'restart'
+                })
+            );
+        }
+
+
+        if (
+            videoModeSelect.value ===
+            'stream'
+        ) {
+
+            startStreaming();
+        }
+
+
+        sendSyncState();
+    }
+);
+
+
+/* =========================================================
+   FULLSCREEN
+========================================================= */
+
+fullscreenBtn.addEventListener(
+    'click',
+    () => {
+
+        const elem =
+            document.documentElement;
+
+
+        if (!document.fullscreenElement) {
+
+            if (elem.requestFullscreen) {
+
+                elem.requestFullscreen()
+                    .catch(() => {});
+            }
+
+        } else {
+
+            if (document.exitFullscreen) {
+
+                document.exitFullscreen()
+                    .catch(() => {});
+            }
+        }
+    }
+);
+
+
+/* =========================================================
+   PLAYER CLICK
+========================================================= */
+
+playerScreen.addEventListener(
+    'click',
+    (e) => {
+
+        startAntiSleepAudio();
+
+
+        if (hasSwiped) {
+
+            hasSwiped =
+                false;
+
+            return;
+        }
+
+
+        if (
+            !playerControls.contains(
+                e.target
+            )
+        ) {
+
+            playerControls.style.display =
+                playerControls.style.display ===
+                'none'
+                    ? 'flex'
+                    : 'none';
+        }
+    }
+);
+
+
+/* =========================================================
+   FORMAT TIME
+========================================================= */
+
+function formatTime(seconds) {
+
+    if (
+        isNaN(seconds) ||
+        !isFinite(seconds)
+    ) {
+        return '00:00';
+    }
+
+
+    const mins =
+        Math.floor(
+            seconds / 60
+        );
+
+    const secs =
+        Math.floor(
+            seconds % 60
+        );
+
+
+    return (
+        `${mins < 10 ? '0' : ''}${mins}:` +
+        `${secs < 10 ? '0' : ''}${secs}`
+    );
+}
+
+
+/* =========================================================
+   TIME UPDATE
+========================================================= */
+
+videoPlayer.addEventListener(
+    'timeupdate',
+    () => {
+
+        if (
+            isDraggingTimeline
+        ) {
+            return;
+        }
+
+
+        if (
+            videoPlayer.duration &&
+            isFinite(videoPlayer.duration)
+        ) {
+
+            const progress =
+                (
+                    videoPlayer.currentTime /
+                    videoPlayer.duration
+                ) * 100;
+
+
+            /*
+             * У Stream режимі Host
+             * теж показує свою позицію.
+             */
+
+            if (
+                isHost ||
+                !videoPlayer.srcObject
+            ) {
+
+                timelineRange.value =
+                    progress;
+            }
+
+
+            timeDisplay.textContent =
+                `${formatTime(
+                    videoPlayer.currentTime
+                )} / ${formatTime(
+                    videoPlayer.duration
+                )}`;
+        }
+    }
+);
+
+
+/* =========================================================
+   METADATA
+========================================================= */
+
+videoPlayer.addEventListener(
+    'loadedmetadata',
+    () => {
+
+        if (
+            videoPlayer.duration &&
+            isFinite(videoPlayer.duration)
+        ) {
+
+            timelineRange.max =
+                100;
+
+            timelineRange.value =
+                0;
+
+            timeDisplay.textContent =
+                `00:00 / ${formatTime(
+                    videoPlayer.duration
+                )}`;
+        }
+
+
+        if (isHost) {
+            sendVideoInfo();
+        }
+    }
+);
+
+
+/* =========================================================
+   TIMELINE TOUCH / MOUSE
+========================================================= */
+
+timelineRange.addEventListener(
+    'mousedown',
+    () => {
+
+        isDraggingTimeline =
+            true;
+    }
+);
+
+
+timelineRange.addEventListener(
+    'touchstart',
+    () => {
+
+        isDraggingTimeline =
+            true;
+    },
+    {
+        passive: true
+    }
+);
+
+
+/* =========================================================
+   TIMELINE INPUT
+========================================================= */
+
+timelineRange.addEventListener(
+    'input',
+    () => {
+
+        /*
+         * LOCAL VIDEO
+         */
+
+        if (
+            videoPlayer.duration &&
+            isFinite(videoPlayer.duration)
+        ) {
+
+            const newTime =
+                (
+                    timelineRange.value /
+                    100
+                ) *
+                videoPlayer.duration;
+
+
+            timeDisplay.textContent =
+                `${formatTime(
+                    newTime
+                )} / ${formatTime(
+                    videoPlayer.duration
+                )}`;
+        }
+    }
+);
+
+
+/* =========================================================
+   TIMELINE CHANGE
+========================================================= */
+
+timelineRange.addEventListener(
+    'change',
+    () => {
+
+        isDraggingTimeline =
+            false;
+
+
+        const duration =
+            videoPlayer.duration;
+
+
+        if (
+            !isFinite(duration) ||
+            duration <= 0
+        ) {
+            return;
+        }
+
+
+        const newTime =
+            (
+                parseFloat(
+                    timelineRange.value
+                ) / 100
+            ) * duration;
+
+
+        /*
+         * HOST
+         */
+
+        if (isHost) {
+
+            ignoreSeekEvent =
+                true;
+
+            try {
+
+                videoPlayer.currentTime =
+                    newTime;
+
+            } catch (e) {}
+
+            ignoreSeekEvent =
+                false;
+
+
+            videoPlayer.playbackRate =
+                1.0;
+
+
+            if (
+                conn &&
+                conn.open
+            ) {
+
+                conn.send(
+                    JSON.stringify({
+                        type: 'seek',
+                        time: newTime
+                    })
+                );
+            }
+
+
+            sendSyncState();
+
+            return;
+        }
+
+
+        /*
+         * CLIENT LOCAL MODE
+         */
+
+        if (
+            !videoPlayer.srcObject
+        ) {
+
+            /*
+             * Візуально одразу ставимо
+             * час на S10.
+             */
+
+            ignoreSeekEvent =
+                true;
+
+            try {
+
+                videoPlayer.currentTime =
+                    newTime;
+
+            } catch (e) {}
+
+            ignoreSeekEvent =
+                false;
+        }
+
+
+        /*
+         * У stream mode S10
+         * відправляє запит Host.
+         */
+
+        if (
+            conn &&
+            conn.open
+        ) {
+
+            conn.send(
+                JSON.stringify({
+                    type:
+                        'seek_request',
+                    time:
+                        newTime
+                })
+            );
+        }
+
+
+        videoPlayer.playbackRate =
+            1.0;
+    }
+);
+
+
+timelineRange.addEventListener(
+    'mouseup',
+    () => {
+
+        isDraggingTimeline =
+            false;
+    }
+);
+
+
+timelineRange.addEventListener(
+    'touchend',
+    () => {
+
+        isDraggingTimeline =
+            false;
+    }
+);
+
+
+/* =========================================================
+   VOLUME SWIPE
+========================================================= */
+
+playerScreen.addEventListener(
+    'touchstart',
+    (e) => {
+
+        startAntiSleepAudio();
+
+
+        if (
+            playerControls.contains(
+                e.target
+            )
+        ) {
+            return;
+        }
+
+
+        if (
+            e.touches.length === 1
+        ) {
+
+            isSwipingVolume =
+                true;
+
+            touchStartY =
+                e.touches[0].clientY;
+
+            touchStartX =
+                e.touches[0].clientX;
+
+            touchStartVolume =
+                videoPlayer.volume;
+
+            hasSwiped =
+                false;
+        }
+
+    },
+    {
+        passive: true
+    }
+);
+
+
+playerScreen.addEventListener(
+    'touchmove',
+    (e) => {
+
+        if (
+            !isSwipingVolume ||
+            e.touches.length !== 1
+        ) {
+            return;
+        }
+
+
+        const diffY =
+            touchStartY -
+            e.touches[0].clientY;
+
+        const diffX =
+            touchStartX -
+            e.touches[0].clientX;
+
+
+        if (
+            Math.abs(diffY) > 10 ||
+            Math.abs(diffX) > 10
+        ) {
+
+            hasSwiped =
+                true;
+        }
+
+
+        if (hasSwiped) {
+
+            const newVolume =
+                Math.max(
+                    0,
+                    Math.min(
+                        1,
+                        touchStartVolume +
+                        (
+                            diffY /
+                            window.innerHeight
+                        ) * 1.5
+                    )
+                );
+
+
+            videoPlayer.volume =
+                newVolume;
+
+
+            showVolumeIndicator(
+                Math.round(
+                    newVolume * 100
+                )
+            );
+        }
+
+    },
+    {
+        passive: true
+    }
+);
+
+
+playerScreen.addEventListener(
+    'touchend',
+    () => {
+
+        isSwipingVolume =
+            false;
+    }
+);
+
+
+/* =========================================================
+   VOLUME INDICATOR
+========================================================= */
+
+function showVolumeIndicator(
+    volPercent
+) {
+
+    volumeIndicator.textContent =
+        `🔊 Гучність: ${volPercent}%`;
+
+    volumeIndicator.style.display =
+        'block';
+
+
+    if (volumeTimeout) {
+        clearTimeout(volumeTimeout);
+    }
+
+
+    volumeTimeout =
+        setTimeout(
+            () => {
+
+                volumeIndicator.style.display =
+                    'none';
+
+            },
+            1000
+        );
+}
+
+
+/* =========================================================
+   SHIFT
+========================================================= */
+
+function applyShift(
+    dx,
+    dy
+) {
+
+    videoOffsetX += dx;
+    videoOffsetY += dy;
+
+    updateVideoStyle();
+    updateCalibrationStyle();
+
+    saveSettings();
+}
+
+
+/* =========================================================
+   SCALE
+========================================================= */
+
+function applyScale(ds) {
+
+    videoScaleMultiplier =
+        Math.max(
+            0.1,
+            Math.min(
+                5.0,
+                videoScaleMultiplier + ds
+            )
+        );
+
+
+    updateVideoStyle();
+
+    updateCalibrationStyle();
+
+    saveSettings();
+}
+
+
+/* =========================================================
+   BUTTONS
+========================================================= */
+
+document
+    .getElementById('playerSaveBtn')
+    .addEventListener(
+        'click',
+        saveSettings
+    );
+
+
+document
+    .getElementById('calibShiftUp')
+    .addEventListener(
+        'click',
+        () => applyShift(0, -4)
+    );
+
+
+document
+    .getElementById('calibShiftDown')
+    .addEventListener(
+        'click',
+        () => applyShift(0, 4)
+    );
+
+
+document
+    .getElementById('calibShiftLeft')
+    .addEventListener(
+        'click',
+        () => applyShift(-4, 0)
+    );
+
+
+document
+    .getElementById('calibShiftRight')
+    .addEventListener(
+        'click',
+        () => applyShift(4, 0)
+    );
+
+
+document
+    .getElementById('calibScalePlus')
+    .addEventListener(
+        'click',
+        () => applyScale(0.02)
+    );
+
+
+document
+    .getElementById('calibScaleMinus')
+    .addEventListener(
+        'click',
+        () => applyScale(-0.02)
+    );
+
+
+document
+    .getElementById('calibReset')
+    .addEventListener(
+        'click',
+        () => {
+
+            videoOffsetX = 0;
+            videoOffsetY = 0;
+            videoScaleMultiplier = 1.0;
+
+            updateVideoStyle();
+            updateCalibrationStyle();
+
+            saveSettings();
+        }
+    );
+
+
+document
+    .getElementById('shiftUpBtn')
+    .addEventListener(
+        'click',
+        () => applyShift(0, -4)
+    );
+
+
+/*
+ * ВИПРАВЛЕНО:
+ * залишений тільки один shiftDownBtn
+ */
+
+document
+    .getElementById('shiftDownBtn')
+    .addEventListener(
+        'click',
+        () => applyShift(0, 4)
+    );
+
+
+document
+    .getElementById('shiftLeftBtn')
+    .addEventListener(
+        'click',
+        () => applyShift(-4, 0)
+    );
+
+
+document
+    .getElementById('shiftRightBtn')
+    .addEventListener(
+        'click',
+        () => applyShift(4, 0)
+    );
+
+
+document
+    .getElementById('scalePlusBtn')
+    .addEventListener(
+        'click',
+        () => applyScale(0.02)
+    );
+
+
+document
+    .getElementById('scaleMinusBtn')
+    .addEventListener(
+        'click',
+        () => applyScale(-0.02)
+    );
+
+
+document
+    .getElementById('resetShiftBtn')
+    .addEventListener(
+        'click',
+        () => {
+
+            videoOffsetX = 0;
+            videoOffsetY = 0;
+            videoScaleMultiplier = 1.0;
+
+            updateVideoStyle();
+            updateCalibrationStyle();
+
+            saveSettings();
+        }
+    );
+
+
+/* =========================================================
+   ДОДАТКОВА ОБРОБКА КОМАНД КЛІЄНТА
+========================================================= */
+
+const originalSetupConnection =
+    setupConnection;
+
+
+/*
+ * Не використовуємо тут додатковий
+ * listener, щоб не створювати дублювання
+ * основного каналу.
+ *
+ * Замість цього перехоплюємо повідомлення
+ * через окремий простий канал нижче.
+ */
+
+
+/* =========================================================
+   WAKE LOCK ПІСЛЯ ЗАПУСКУ
+========================================================= */
+
+window.addEventListener(
+    'pageshow',
+    () => {
+
+        if (
+            document.visibilityState ===
+            'visible'
+        ) {
+
+            startAntiSleepAudio();
+
+            requestWakeLock();
+
+            startWakeLockMonitor();
+        }
+    }
+);
+
+
+/* =========================================================
+   ПОВТОРНИЙ WAKE LOCK ПРИ PLAY
+========================================================= */
+
+videoPlayer.addEventListener(
+    'play',
+    () => {
+
+        startAntiSleepAudio();
+
+        requestWakeLock();
+    }
+);
+
+
+/* =========================================================
+   ЗАПУСК MONITOR
+========================================================= */
+
+startWakeLockMonitor();
+
+</script>
+
+</body>
+  </html>
