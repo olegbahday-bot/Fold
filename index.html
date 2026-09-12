@@ -205,7 +205,16 @@ let peer=null;
 let conn=null;
 let activeCall=null;
 let isHost=false;
+
 let localVideoBlobUrl=null;
+
+/*
+  ВАЖЛИВО:
+  Це єдине джерело поточного файлу на S25+.
+  Тепер при зміні відео старий file input
+  більше ніколи не використовується випадково.
+*/
+let selectedHostFile=null;
 
 let audioCtx=null;
 let silentOscillator=null;
@@ -243,8 +252,9 @@ let remoteSyncCorrectionTimer=null;
 let videoChangeInProgress=false;
 let videoVersion=0;
 
+
 /* =========================================================
-   НОВИЙ РЕЖИМ: ЛОКАЛЬНИЙ КЕШ
+   ЛОКАЛЬНИЙ КЕШ
    ========================================================= */
 
 const CACHE_MODE='cache';
@@ -253,13 +263,17 @@ const CACHE_DB_NAME='ScreenPartyVideoCache';
 const CACHE_DB_VERSION=1;
 const CACHE_STORE='video';
 
+/*
+  64 KB — залишаємо невеликий розмір,
+  щоб стабільно працювати на S10/S25+
+  через WebRTC DataChannel.
+*/
 const CACHE_CHUNK_SIZE=64*1024;
 
 let cacheDB=null;
 
-let cacheTransferId=0;
+let cacheTransferId='';
 let cacheTransferActive=false;
-let cacheTransferCancelled=false;
 
 let cacheReceiveId='';
 let cacheReceiveName='';
@@ -269,6 +283,7 @@ let cacheReceiveReceived=0;
 let cacheReceiveChunks=[];
 let cacheReceiveChunkCount=0;
 let cacheReceiveStartedAt=0;
+let cacheReceiveReceivedMap=new Set();
 
 let cacheHostSending=false;
 let cacheHostSendToken=0;
@@ -285,6 +300,7 @@ let cacheLastHardSync=0;
 
 let cacheLocalVideoUrl=null;
 
+
 /* =========================================================
    PEER
    ========================================================= */
@@ -299,9 +315,10 @@ const peerOptions={
     }
 };
 
-/* =========================
+
+/* =========================================================
    WAKE LOCK
-========================= */
+   ========================================================= */
 
 async function requestWakeLock(){
 
@@ -451,9 +468,10 @@ setInterval(()=>{
 
 },4000);
 
-/* =========================
+
+/* =========================================================
    SETTINGS
-========================= */
+   ========================================================= */
 
 function loadSavedSettings(){
 
@@ -486,9 +504,10 @@ function saveSettings(){
     localStorage.setItem('sp_position',positionSelect.value);
 }
 
-/* =========================
+
+/* =========================================================
    INPUT VISIBILITY
-========================= */
+   ========================================================= */
 
 function updateInputsVisibility(){
 
@@ -508,11 +527,6 @@ function updateInputsVisibility(){
         hostSection.classList.add('hidden');
         clientSection.classList.remove('hidden');
 
-        /*
-          Для stream файл на S10 не потрібен.
-          Для local і cache S10 отримує/вибирає
-          локальний файл відповідно до режиму.
-        */
         fileInputContainer.style.display=
             mode==='stream'||mode==='cache'
             ?'none'
@@ -527,9 +541,10 @@ videoModeSelect.addEventListener('change',updateInputsVisibility);
 
 updateInputsVisibility();
 
-/* =========================
+
+/* =========================================================
    FULLSCREEN
-========================= */
+   ========================================================= */
 
 function requestFullscreenNow(){
 
@@ -542,9 +557,10 @@ function requestFullscreenNow(){
     }
 }
 
-/* =========================
+
+/* =========================================================
    CALIBRATION
-========================= */
+   ========================================================= */
 
 openCalibOverlayBtn.addEventListener('click',()=>{
 
@@ -599,6 +615,7 @@ function updateCalibrationStyle(){
         `translate3d(${leftPos}px,${videoOffsetY}px,0)`;
 }
 
+
 /* =========================================================
    CACHE DATABASE
    ========================================================= */
@@ -651,40 +668,6 @@ function openCacheDB(){
             reject(e);
         }
     });
-}
-
-async function clearCacheDB(){
-
-    try{
-
-        const db=
-            await openCacheDB();
-
-        await new Promise((resolve,reject)=>{
-
-            const tx=
-                db.transaction(
-                    CACHE_STORE,
-                    'readwrite'
-                );
-
-            tx.objectStore(
-                CACHE_STORE
-            ).clear();
-
-            tx.oncomplete=()=>resolve();
-            tx.onerror=()=>reject(tx.error);
-            tx.onabort=()=>reject(tx.error);
-
-        });
-
-    }catch(e){
-
-        console.error(
-            'Cache clear error:',
-            e
-        );
-    }
 }
 
 async function saveCacheBlob(blob,meta){
@@ -768,9 +751,7 @@ async function loadCacheBlob(){
 
             request.onerror=()=>{
 
-                reject(
-                    request.error
-                );
+                reject(request.error);
             };
         });
 
@@ -801,11 +782,17 @@ async function deleteCacheBlob(){
 
             tx.oncomplete=()=>resolve();
             tx.onerror=()=>reject(tx.error);
+            tx.onabort=()=>reject(tx.error);
 
         });
 
     }catch(e){}
 }
+
+
+/* =========================================================
+   SET LOCAL CACHE VIDEO
+   ========================================================= */
 
 async function setCachedVideoBlob(blob,meta){
 
@@ -886,8 +873,9 @@ async function setCachedVideoBlob(blob,meta){
     }
 }
 
+
 /* =========================================================
-   CACHE TRANSFER - HOST
+   CACHE TRANSFER HOST
    ========================================================= */
 
 async function startCacheTransfer(file){
@@ -896,6 +884,9 @@ async function startCacheTransfer(file){
         return;
 
     if(videoModeSelect.value!==CACHE_MODE)
+        return;
+
+    if(!file)
         return;
 
     if(!conn||!conn.open){
@@ -921,12 +912,14 @@ async function startCacheTransfer(file){
 
     cacheTransferId=transferId;
 
+    cacheRemoteReady=false;
+
     connectionStatus.textContent=
-        'Статус: Підготовка передачі через Wi-Fi...';
+        'Статус: Починаю передачу файлу на S10...';
 
     /*
-      Спочатку повідомляємо S10,
-      що старий кеш треба видалити.
+      ЄДИНИЙ cache_transfer_start.
+      Старої подвійної відправки більше немає.
     */
     sendMessage({
 
@@ -940,16 +933,57 @@ async function startCacheTransfer(file){
 
         mime:file.type||'video/mp4',
 
-        chunkSize:CACHE_CHUNK_SIZE
+        chunkSize:CACHE_CHUNK_SIZE,
+
+        chunks:
+            Math.ceil(
+                file.size/CACHE_CHUNK_SIZE
+            )
     });
 
     /*
-      Даємо DataConnection короткий час
-      підготуватися.
+      Чекаємо на підтвердження S10,
+      що він готовий приймати.
     */
-    await new Promise(resolve=>
-        setTimeout(resolve,250)
-    );
+    await new Promise(resolve=>{
+
+        let finished=false;
+
+        const check=()=>{
+
+            if(finished)
+                return;
+
+            if(token!==cacheHostSendToken||
+               !cacheHostSending){
+
+                finished=true;
+                resolve();
+                return;
+            }
+
+            if(cacheReceiveReadyForTransfer===transferId){
+
+                finished=true;
+                resolve();
+                return;
+            }
+
+            setTimeout(check,30);
+        };
+
+        check();
+
+        setTimeout(()=>{
+
+            if(!finished){
+
+                finished=true;
+                resolve();
+            }
+
+        },5000);
+    });
 
     if(token!==cacheHostSendToken||
        !cacheHostSending||
@@ -962,6 +996,11 @@ async function startCacheTransfer(file){
 
     let offset=0;
     let chunkNumber=0;
+
+    const totalChunks=
+        Math.ceil(
+            file.size/CACHE_CHUNK_SIZE
+        );
 
     const started=
         performance.now();
@@ -998,9 +1037,9 @@ async function startCacheTransfer(file){
         }
 
         /*
-          Відправляємо об'єкт.
-          PeerJS передає ArrayBuffer
-          через DataChannel.
+          Binary DataConnection.
+          ArrayBuffer передається як справжній
+          binary payload, а не JSON.
         */
         try{
 
@@ -1012,6 +1051,8 @@ async function startCacheTransfer(file){
 
                 n:chunkNumber,
 
+                total:totalChunks,
+
                 data:buffer
 
             });
@@ -1022,6 +1063,9 @@ async function startCacheTransfer(file){
                 'Cache chunk send error:',
                 e
             );
+
+            connectionStatus.textContent=
+                'Статус: Помилка передачі частини файлу.';
 
             break;
         }
@@ -1046,13 +1090,15 @@ async function startCacheTransfer(file){
             `Статус: Передача відео ${percent.toFixed(1)}% • ${speed.toFixed(1)} МБ/с`;
 
         /*
-          Невелика пауза дає DataChannel
-          можливість спорожнювати буфер.
+          Після кожних 8 частин трохи віддаємо
+          час браузеру/DataChannel.
         */
-        if(chunkNumber%8===0)
+        if(chunkNumber%8===0){
+
             await new Promise(resolve=>
-                setTimeout(resolve,0)
+                setTimeout(resolve,5)
             );
+        }
     }
 
     if(
@@ -1075,19 +1121,26 @@ async function startCacheTransfer(file){
 
             mime:file.type||'video/mp4',
 
-            chunks:chunkNumber
+            chunks:totalChunks
         });
 
         connectionStatus.textContent=
-            'Статус: Файл передано. Очікування підтвердження S10...';
-
+            'Статус: Файл повністю передано. S10 збирає відео...';
     }
 
     cacheHostSending=false;
 }
 
+
 /* =========================================================
-   CACHE TRANSFER - CLIENT
+   Прапорець готовності S10 до прийому
+   ========================================================= */
+
+let cacheReceiveReadyForTransfer='';
+
+
+/* =========================================================
+   CACHE TRANSFER CLIENT START
    ========================================================= */
 
 async function cacheReceiveStart(msg){
@@ -1108,13 +1161,24 @@ async function cacheReceiveStart(msg){
 
     cacheReceiveChunks=[];
 
+    cacheReceiveReceivedMap=
+        new Set();
+
     cacheReceiveChunkCount=
-        Number(msg.chunks)||0;
+        Number(msg.chunks)||
+        Math.ceil(
+            cacheReceiveSize/CACHE_CHUNK_SIZE
+        );
 
     cacheReceiveStartedAt=
         performance.now();
 
     cacheTransferActive=true;
+
+    cacheRemoteReady=false;
+
+    connectionStatus.textContent=
+        'Статус: Готую S10 до прийому нового відео...';
 
     /*
       Видаляємо попередній кеш.
@@ -1131,13 +1195,10 @@ async function cacheReceiveStart(msg){
     }
 
     /*
-      Старе відео прибираємо з player.
+      Старе відео прибираємо.
     */
     try{
         videoPlayer.pause();
-    }catch(e){}
-
-    try{
         videoPlayer.removeAttribute('src');
         videoPlayer.srcObject=null;
         videoPlayer.load();
@@ -1151,9 +1212,28 @@ async function cacheReceiveStart(msg){
     timeDisplay.textContent=
         '00:00 / 00:00';
 
+    /*
+      Підтверджуємо HOST:
+      цей transferId можна приймати.
+    */
+    cacheReceiveReadyForTransfer=
+        cacheReceiveId;
+
+    sendMessage({
+
+        type:'cache_receive_ready',
+
+        id:cacheReceiveId
+    });
+
     connectionStatus.textContent=
         'Статус: Отримання відео через Wi-Fi 0%...';
 }
+
+
+/* =========================================================
+   CACHE TRANSFER CLIENT CHUNK
+   ========================================================= */
 
 async function cacheReceiveChunk(msg){
 
@@ -1163,7 +1243,8 @@ async function cacheReceiveChunk(msg){
     if(String(msg.id)!==cacheReceiveId)
         return;
 
-    if(!msg.data)
+    if(msg.data===undefined||
+       msg.data===null)
         return;
 
     try{
@@ -1171,32 +1252,68 @@ async function cacheReceiveChunk(msg){
         let buffer=msg.data;
 
         /*
-          Деякі реалізації PeerJS
-          можуть повернути Uint8Array.
+          Binary PeerJS зазвичай повертає ArrayBuffer.
         */
-        if(buffer instanceof Uint8Array)
-            buffer=buffer.buffer;
+        if(buffer instanceof Uint8Array){
 
-        cacheReceiveChunks[
-            Number(msg.n)||0
-        ]=buffer;
+            /*
+              Важливо: не використовуємо весь
+              backing buffer, якщо Uint8Array
+              має власний offset/length.
+            */
+            buffer=
+                buffer.buffer.slice(
+                    buffer.byteOffset,
+                    buffer.byteOffset+
+                    buffer.byteLength
+                );
+        }
 
-        const length=
-            buffer.byteLength||0;
+        if(buffer instanceof Blob){
 
-        cacheReceiveReceived+=length;
+            buffer=
+                await buffer.arrayBuffer();
+        }
+
+        if(!(buffer instanceof ArrayBuffer))
+            return;
+
+        const n=
+            Number(msg.n);
+
+        if(!Number.isInteger(n))
+            return;
+
+        /*
+          Не додаємо дубль вдруге.
+        */
+        if(cacheReceiveReceivedMap.has(n))
+            return;
+
+        cacheReceiveReceivedMap.add(n);
+
+        cacheReceiveChunks[n]=buffer;
+
+        cacheReceiveReceived+=
+            buffer.byteLength;
 
         const percent=
             cacheReceiveSize>0
-            ?cacheReceiveReceived/cacheReceiveSize*100
+            ?cacheReceiveReceived/
+             cacheReceiveSize*
+             100
             :0;
 
         const elapsed=
-            (performance.now()-cacheReceiveStartedAt)/1000;
+            (performance.now()-
+             cacheReceiveStartedAt)/1000;
 
         const speed=
             elapsed>0
-            ?cacheReceiveReceived/elapsed/1024/1024
+            ?cacheReceiveReceived/
+             elapsed/
+             1024/
+             1024
             :0;
 
         connectionStatus.textContent=
@@ -1211,6 +1328,11 @@ async function cacheReceiveChunk(msg){
     }
 }
 
+
+/* =========================================================
+   CACHE TRANSFER END CLIENT
+   ========================================================= */
+
 async function cacheReceiveEnd(msg){
 
     if(!cacheTransferActive)
@@ -1220,31 +1342,109 @@ async function cacheReceiveEnd(msg){
         return;
 
     connectionStatus.textContent=
-        'Статус: Збираю відеофайл на S10...';
+        'Статус: Перевіряю отримані частини...';
 
     try{
 
-        const validChunks=
-            cacheReceiveChunks.filter(
-                item=>item
-            );
+        const expectedChunks=
+            Number(msg.chunks)||
+            cacheReceiveChunkCount;
 
+        /*
+          Перевіряємо кількість частин.
+        */
         if(
-            cacheReceiveSize>0&&
-            cacheReceiveReceived<cacheReceiveSize
+            cacheReceiveReceivedMap.size<
+            expectedChunks
         ){
 
             connectionStatus.textContent=
-                'Статус: Помилка передачі — файл отримано не повністю.';
+                `Статус: Помилка — отримано ${cacheReceiveReceivedMap.size} з ${expectedChunks} частин.`;
+
+            /*
+              Повідомляємо S25+, щоб він не
+              вважав передачу завершеною.
+            */
+            sendMessage({
+
+                type:'cache_receive_error',
+
+                id:cacheReceiveId,
+
+                received:
+                    cacheReceiveReceivedMap.size,
+
+                expected:
+                    expectedChunks
+            });
 
             cacheTransferActive=false;
 
             return;
         }
 
+        /*
+          Перевіряємо розмір.
+        */
+        if(
+            cacheReceiveSize>0&&
+            cacheReceiveReceived<
+            cacheReceiveSize
+        ){
+
+            connectionStatus.textContent=
+                `Статус: Помилка — отримано ${cacheReceiveReceived} з ${cacheReceiveSize} байт.`;
+
+            sendMessage({
+
+                type:'cache_receive_error',
+
+                id:cacheReceiveId,
+
+                receivedBytes:
+                    cacheReceiveReceived,
+
+                expectedBytes:
+                    cacheReceiveSize
+            });
+
+            cacheTransferActive=false;
+
+            return;
+        }
+
+        connectionStatus.textContent=
+            'Статус: Збираю відеофайл на S10...';
+
+        /*
+          НЕ використовуємо filter().
+          Частини мають залишатися строго
+          в оригінальному порядку:
+          0,1,2,3...
+        */
+        const orderedChunks=[];
+
+        for(let i=0;i<expectedChunks;i++){
+
+            const chunk=
+                cacheReceiveChunks[i];
+
+            if(!chunk){
+
+                connectionStatus.textContent=
+                    `Статус: Відсутня частина №${i+1}.`;
+
+                cacheTransferActive=false;
+
+                return;
+            }
+
+            orderedChunks.push(chunk);
+        }
+
         const blob=
             new Blob(
-                validChunks,
+                orderedChunks,
                 {
                     type:
                         cacheReceiveType||
@@ -1253,9 +1453,24 @@ async function cacheReceiveEnd(msg){
             );
 
         /*
-          Зберігаємо тільки один
-          поточний файл.
+          Остаточна перевірка розміру Blob.
         */
+        if(
+            cacheReceiveSize>0&&
+            blob.size!==cacheReceiveSize
+        ){
+
+            connectionStatus.textContent=
+                `Статус: Помилка складання. Розмір ${blob.size} замість ${cacheReceiveSize} байт.`;
+
+            cacheTransferActive=false;
+
+            return;
+        }
+
+        connectionStatus.textContent=
+            'Статус: Зберігаю повний файл у кеш S10...';
+
         const saved=
             await saveCacheBlob(
                 blob,
@@ -1275,6 +1490,9 @@ async function cacheReceiveEnd(msg){
             return;
         }
 
+        connectionStatus.textContent=
+            'Статус: Відео збережено. Завантажую у плеєр...';
+
         await setCachedVideoBlob(
             blob,
             {
@@ -1284,6 +1502,7 @@ async function cacheReceiveEnd(msg){
         );
 
         cacheRemoteReady=true;
+
         cacheRemoteFileName=
             cacheReceiveName;
 
@@ -1306,7 +1525,7 @@ async function cacheReceiveEnd(msg){
         });
 
         connectionStatus.textContent=
-            'Статус: Відео готове на S10.';
+            'Статус: ✅ Відео повністю готове на S10.';
 
         playPauseBtn.textContent=
             '▶ Грати';
@@ -1324,14 +1543,16 @@ async function cacheReceiveEnd(msg){
         cacheTransferActive=false;
 
         connectionStatus.textContent=
-            'Статус: Помилка складання відеофайлу.';
+            'Статус: ❌ Помилка складання відеофайлу.';
     }
 
     cacheReceiveChunks=[];
+    cacheReceiveReceivedMap.clear();
 }
 
+
 /* =========================================================
-   CACHE LOAD EXISTING
+   LOAD EXISTING CACHE
    ========================================================= */
 
 async function tryLoadExistingCache(){
@@ -1361,14 +1582,15 @@ async function tryLoadExistingCache(){
             saved.name||'';
 
         connectionStatus.textContent=
-            'Статус: Знайдено попередній кеш.';
+            'Статус: Знайдено попередній кеш. Очікування нового відео...';
 
     }catch(e){}
 }
 
+
 /* =========================================================
    VIDEO INPUT
-========================================================= */
+   ========================================================= */
 
 videoInput.addEventListener('change',e=>{
 
@@ -1378,10 +1600,12 @@ videoInput.addEventListener('change',e=>{
         return;
 
     /*
-      Новий режим кешу:
-      файл на S25+ використовується як джерело,
-      а копія автоматично передається S10.
+      ГОЛОВНЕ ВИПРАВЛЕННЯ:
+      запам'ятовуємо саме вибраний файл.
     */
+    if(isHost)
+        selectedHostFile=file;
+
     if(
         isHost&&
         videoModeSelect.value===CACHE_MODE
@@ -1415,23 +1639,34 @@ videoInput.addEventListener('change',e=>{
             '▶ Грати';
 
         connectionStatus.textContent=
-            'Статус: Відео вибрано. Очікування підключення S10...';
+            conn&&conn.open
+            ?'Статус: Відео вибрано. Починаю копіювання на S10...'
+            :'Статус: Відео вибрано. Очікування підключення S10...';
 
-        videoPlayer.addEventListener(
-            'loadedmetadata',
-            ()=>{
+        const startTransferWhenReady=()=>{
 
-                updateVideoStyle();
+            updateVideoStyle();
 
-                if(conn&&conn.open){
+            if(conn&&conn.open){
 
-                    startCacheTransfer(file);
+                startCacheTransfer(
+                    selectedHostFile
+                );
+            }
+        };
 
-                }
+        if(videoPlayer.readyState>=1){
 
-            },
-            {once:true}
-        );
+            startTransferWhenReady();
+
+        }else{
+
+            videoPlayer.addEventListener(
+                'loadedmetadata',
+                startTransferWhenReady,
+                {once:true}
+            );
+        }
 
         return;
     }
@@ -1475,3319 +1710,4 @@ videoInput.addEventListener('change',e=>{
             sendStreamState();
             sendSyncState();
 
-        },{once:true});
-    }
-});
-
-/* =========================
-   CHANGE VIDEO
-========================= */
-
-changeVideoBtn.addEventListener('click',()=>{
-
-    if(!isHost)
-        return;
-
-    newVideoInput.value='';
-    newVideoInput.click();
-});
-
-/* =========================
-   CLEAR REMOTE VIDEO
-========================= */
-
-function clearRemoteVideo(){
-
-    try{
-        videoPlayer.pause();
-    }catch(e){}
-
-    try{
-        videoPlayer.srcObject=null;
-    }catch(e){}
-
-    try{
-        videoPlayer.removeAttribute('src');
-    }catch(e){}
-
-    try{
-        videoPlayer.load();
-    }catch(e){}
-
-    remoteVideoDuration=0;
-    remoteVideoTime=0;
-    remoteVideoPaused=true;
-
-    hostSyncTime=0;
-    hostSyncReceivedAt=0;
-    hostSyncPaused=true;
-
-    remoteSyncGeneration++;
-
-    timelineRange.value=0;
-
-    timeDisplay.textContent=
-        '00:00 / 00:00';
-
-    playPauseBtn.textContent=
-        '▶ Грати';
-}
-
-/* =========================================================
-   CHANGE VIDEO HOST
-========================================================= */
-
-newVideoInput.addEventListener('change',async e=>{
-
-    const file=e.target.files[0];
-
-    if(!file||!isHost)
-        return;
-
-    if(videoChangeInProgress)
-        return;
-
-    /*
-      НОВИЙ CACHE РЕЖИМ
-    */
-    if(videoModeSelect.value===CACHE_MODE){
-
-        videoChangeInProgress=true;
-
-        videoVersion++;
-
-        const currentVersion=
-            videoVersion;
-
-        cacheHostSendToken++;
-
-        cacheHostSending=false;
-
-        connectionStatus.textContent=
-            'Статус: Підготовка нового відео...';
-
-        if(conn&&conn.open){
-
-            sendMessage({
-
-                type:'cache_transfer_start',
-
-                id:
-                    Date.now().toString(36)+
-                    '-' +
-                    Math.random().toString(36).slice(2,8),
-
-                name:file.name,
-
-                size:file.size,
-
-                mime:file.type||'video/mp4',
-
-                chunkSize:CACHE_CHUNK_SIZE
-            });
-
-            /*
-              Справжню передачу запускаємо
-              окремою функцією, яка повторно
-              сформує transfer ID.
-            */
-
-            await new Promise(resolve=>
-                setTimeout(resolve,100)
-            );
-
-            /*
-              Відправляємо через нормальний
-              механізм transfer.
-            */
-            await startCacheTransfer(file);
-        }
-
-        if(currentVersion===videoVersion){
-
-            if(localVideoBlobUrl){
-
-                try{
-                    URL.revokeObjectURL(
-                        localVideoBlobUrl
-                    );
-                }catch(err){}
-            }
-
-            localVideoBlobUrl=
-                URL.createObjectURL(file);
-
-            videoPlayer.pause();
-            videoPlayer.srcObject=null;
-            videoPlayer.src=
-                localVideoBlobUrl;
-
-            videoPlayer.load();
-
-            await new Promise(resolve=>{
-
-                if(videoPlayer.readyState>=1){
-
-                    resolve();
-
-                }else{
-
-                    videoPlayer.addEventListener(
-                        'loadedmetadata',
-                        resolve,
-                        {once:true}
-                    );
-
-                    setTimeout(
-                        resolve,
-                        4000
-                    );
-                }
-            });
-
-            updateVideoStyle();
-
-            videoPlayer.currentTime=0;
-
-            playPauseBtn.textContent=
-                '▶ Грати';
-
-            sendMessage({
-
-                type:'cache_host_ready',
-
-                duration:
-                    Number.isFinite(videoPlayer.duration)
-                    ?videoPlayer.duration
-                    :0
-            });
-
-            connectionStatus.textContent=
-                'Статус: Нове відео готове на S25+. Очікуємо S10...';
-        }
-
-        videoChangeInProgress=false;
-
-        return;
-    }
-
-    if(videoModeSelect.value!=='stream'){
-
-        if(localVideoBlobUrl){
-
-            try{
-                URL.revokeObjectURL(localVideoBlobUrl);
-            }catch(err){}
-        }
-
-        localVideoBlobUrl=
-            URL.createObjectURL(file);
-
-        videoPlayer.pause();
-
-        videoPlayer.srcObject=null;
-
-        videoPlayer.src=
-            localVideoBlobUrl;
-
-        videoPlayer.load();
-
-        videoPlayer.currentTime=0;
-
-        playPauseBtn.textContent=
-            '▶ Грати';
-
-        updateVideoStyle();
-
-        sendSyncState();
-
-        return;
-    }
-
-    videoChangeInProgress=true;
-
-    videoVersion++;
-
-    const currentVersion=
-        videoVersion;
-
-    connectionStatus.textContent=
-        'Статус: Зміна відео...';
-
-    sendMessage({
-        type:'video_change_start',
-        version:currentVersion
-    });
-
-    if(activeCall){
-
-        const oldCall=
-            activeCall;
-
-        activeCall=null;
-
-        try{
-            oldCall.close();
-        }catch(err){}
-    }
-
-    try{
-        videoPlayer.pause();
-    }catch(err){}
-
-    try{
-        videoPlayer.srcObject=null;
-    }catch(err){}
-
-    if(localVideoBlobUrl){
-
-        try{
-            URL.revokeObjectURL(localVideoBlobUrl);
-        }catch(err){}
-    }
-
-    localVideoBlobUrl=
-        URL.createObjectURL(file);
-
-    videoPlayer.removeAttribute('src');
-
-    videoPlayer.load();
-
-    videoPlayer.src=
-        localVideoBlobUrl;
-
-    videoPlayer.load();
-
-    timelineRange.value=0;
-
-    timeDisplay.textContent=
-        '00:00 / 00:00';
-
-    await new Promise(resolve=>{
-
-        let finished=false;
-
-        const done=()=>{
-
-            if(finished)
-                return;
-
-            finished=true;
-
-            videoPlayer.removeEventListener(
-                'loadedmetadata',
-                done
-            );
-
-            resolve();
-        };
-
-        if(videoPlayer.readyState>=1){
-
-            done();
-
-        }else{
-
-            videoPlayer.addEventListener(
-                'loadedmetadata',
-                done
-            );
-        }
-
-        setTimeout(done,3000);
-    });
-
-    if(currentVersion!==videoVersion){
-
-        videoChangeInProgress=false;
-
-        return;
-    }
-
-    try{
-        videoPlayer.currentTime=0;
-    }catch(err){}
-
-    videoPlayer.playbackRate=1;
-
-    updateVideoStyle();
-
-    sendMessage({
-        type:'video_change_ready',
-        version:currentVersion,
-        duration:
-            Number.isFinite(videoPlayer.duration)
-            ?videoPlayer.duration
-            :0
-    });
-
-    await new Promise(resolve=>
-        setTimeout(resolve,800)
-    );
-
-    if(currentVersion!==videoVersion){
-
-        videoChangeInProgress=false;
-
-        return;
-    }
-
-    startStreaming();
-
-    await new Promise(resolve=>
-        setTimeout(resolve,700)
-    );
-
-    if(currentVersion!==videoVersion){
-
-        videoChangeInProgress=false;
-
-        return;
-    }
-
-    videoPlayer.play().catch(()=>{});
-
-    playPauseBtn.textContent=
-        '❚❚ Пауза';
-
-    sendStreamState();
-
-    startAntiSleepAudio();
-    requestWakeLock();
-
-    videoChangeInProgress=false;
-
-    connectionStatus.textContent=
-        'Статус: Нове відео запущено.';
-});
-
-/* =========================
-   HOST
-========================= */
-
-startHostBtn.addEventListener('click',()=>{
-
-    startAntiSleepAudio();
-
-    requestFullscreenNow();
-
-    isHost=true;
-
-    startHostPeer();
-});
-
-function startHostPeer(){
-
-    if(peer){
-
-        try{
-            peer.destroy();
-        }catch(e){}
-    }
-
-    const code=
-        Math.floor(
-            10000+Math.random()*90000
-        ).toString();
-
-    connectionStatus.textContent=
-        'Статус: Створення кімнати...';
-
-    peer=
-        new Peer(
-            'sp-'+code,
-            peerOptions
-        );
-
-    peer.on('open',()=>{
-
-        hostCodeDisplay.textContent=
-            code;
-
-        codeContainer.classList.remove(
-            'hidden'
-        );
-
-        connectionStatus.textContent=
-            'Статус: Кімнату створено! Очікування другого телефону...';
-
-        if(localVideoBlobUrl)
-            updateVideoStyle();
-    });
-
-    peer.on('connection',connection=>{
-
-        conn=connection;
-
-        setupConnection();
-    });
-
-    peer.on('call',call=>{
-
-        try{
-            call.close();
-        }catch(e){}
-    });
-
-    peer.on('error',err=>{
-
-        console.error(
-            'PeerJS Host error:',
-            err
-        );
-
-        if(err&&err.type==='unavailable-id'){
-
-            connectionStatus.textContent=
-                'Статус: Код зайнятий, створіть кімнату ще раз.';
-
-        }else{
-
-            connectionStatus.textContent=
-                'Статус: Помилка створення кімнати.';
-        }
-    });
-}
-
-/* =========================
-   CLIENT
-========================= */
-
-connectClientBtn.addEventListener('click',()=>{
-
-    startAntiSleepAudio();
-
-    const code=
-        clientCodeInput.value.trim();
-
-    if(code.length!==5){
-
-        alert(
-            'Введіть 5-значний код!'
-        );
-
-        return;
-    }
-
-    if(peer){
-
-        try{
-            peer.destroy();
-        }catch(e){}
-    }
-
-    requestFullscreenNow();
-
-    isHost=false;
-
-    connectionStatus.textContent=
-        'Статус: Підключення...';
-
-    peer=
-        new Peer(peerOptions);
-
-    peer.on('open',()=>{
-
-        conn=
-            peer.connect(
-                'sp-'+code
-            );
-
-        setupConnection();
-    });
-
-    peer.on('call',call=>{
-
-        if(activeCall&&
-           activeCall!==call){
-
-            try{
-                activeCall.close();
-            }catch(e){}
-        }
-
-        activeCall=call;
-
-        call.answer();
-
-        call.on('stream',remoteStream=>{
-
-            /*
-              У cache режимі P2P video stream
-              НЕ використовується.
-            */
-            if(videoModeSelect.value===CACHE_MODE){
-
-                try{
-                    call.close();
-                }catch(e){}
-
-                if(activeCall===call)
-                    activeCall=null;
-
-                return;
-            }
-
-            try{
-                videoPlayer.pause();
-            }catch(e){}
-
-            try{
-                videoPlayer.srcObject=null;
-            }catch(e){}
-
-            try{
-                videoPlayer.removeAttribute('src');
-            }catch(e){}
-
-            videoPlayer.srcObject=
-                remoteStream;
-
-            videoPlayer.muted=false;
-            videoPlayer.volume=1;
-
-            videoPlayer.play().catch(()=>{});
-
-            startAntiSleepAudio();
-            requestWakeLock();
-
-            connectionStatus.textContent=
-                'Статус: Відео отримано з головного телефону.';
-
-            hostSyncTime=0;
-            hostSyncReceivedAt=0;
-            hostSyncPaused=true;
-        });
-
-        call.on('close',()=>{
-
-            if(activeCall===call)
-                activeCall=null;
-        });
-
-        call.on('error',()=>{
-
-            if(activeCall===call)
-                activeCall=null;
-        });
-    });
-
-    peer.on('error',err=>{
-
-        console.error(
-            'PeerJS Client error:',
-            err
-        );
-
-        connectionStatus.textContent=
-            'Статус: Не вдалося підключитися до кімнати.';
-
-        alert(
-            'Не вдалося підключитися до кімнати. Перевірте 5-значний код.'
-        );
-    });
-});
-
-/* =========================
-   SEND MESSAGE
-========================= */
-
-function sendMessage(message){
-
-    if(!conn||!conn.open)
-        return false;
-
-    try{
-
-        conn.send(
-            typeof message==='string'
-            ?message
-            :message
-        );
-
-        return true;
-
-    }catch(e){
-
-        return false;
-    }
-}
-
-/* =========================
-   SCREEN INFO
-========================= */
-
-function sendScreenInfo(){
-
-    sendMessage({
-
-        type:'screen_info',
-
-        width:window.innerWidth,
-
-        height:window.innerHeight,
-
-        position:positionSelect.value,
-
-        videoMode:videoModeSelect.value
-    });
-}
-
-/* =========================
-   STREAMING
-========================= */
-
-function startStreaming(){
-
-    if(!isHost)
-        return;
-
-    if(videoModeSelect.value!=='stream')
-        return;
-
-    if(!conn||!conn.open)
-        return;
-
-    if(!localVideoBlobUrl)
-        return;
-
-    if(activeCall){
-
-        try{
-            activeCall.close();
-        }catch(e){}
-
-        activeCall=null;
-    }
-
-    try{
-
-        const stream=
-            videoPlayer.captureStream
-            ?videoPlayer.captureStream()
-            :(videoPlayer.mozCaptureStream
-              ?videoPlayer.mozCaptureStream()
-              :null);
-
-        if(!stream)
-            return;
-
-        const newCall=
-            peer.call(
-                conn.peer,
-                stream
-            );
-
-        if(!newCall)
-            return;
-
-        activeCall=
-            newCall;
-
-        newCall.on('close',()=>{
-
-            if(activeCall===newCall)
-                activeCall=null;
-        });
-
-        newCall.on('error',()=>{
-
-            if(activeCall===newCall)
-                activeCall=null;
-        });
-
-    }catch(e){
-
-        console.error(
-            'Streaming error:',
-            e
-        );
-    }
-}
-
-/* =========================
-   STATE
-========================= */
-
-function sendStreamState(){
-
-    if(!isHost||
-       !conn||
-       !conn.open||
-       videoModeSelect.value!=='stream')
-        return;
-
-    const duration=
-        Number(videoPlayer.duration);
-
-    const time=
-        Number(videoPlayer.currentTime);
-
-    sendMessage({
-
-        type:'stream_state',
-
-        time:
-            Number.isFinite(time)
-            ?time
-            :0,
-
-        duration:
-            Number.isFinite(duration)
-            ?duration
-            :0,
-
-        paused:
-            videoPlayer.paused,
-
-        sentAt:
-            Date.now(),
-
-        generation:
-            remoteSyncGeneration
-    });
-}
-
-function sendSyncState(){
-
-    if(!isHost||
-       !conn||
-       !conn.open||
-       videoModeSelect.value!=='local')
-        return;
-
-    sendMessage({
-
-        type:'sync_state',
-
-        time:videoPlayer.currentTime,
-
-        paused:videoPlayer.paused
-    });
-}
-
-function sendCacheSyncState(){
-
-    if(!isHost||
-       !conn||
-       !conn.open||
-       videoModeSelect.value!==CACHE_MODE)
-        return;
-
-    const duration=
-        Number(videoPlayer.duration);
-
-    const time=
-        Number(videoPlayer.currentTime);
-
-    sendMessage({
-
-        type:'cache_sync_state',
-
-        time:
-            Number.isFinite(time)
-            ?time
-            :0,
-
-        duration:
-            Number.isFinite(duration)
-            ?duration
-            :0,
-
-        paused:
-            videoPlayer.paused,
-
-        generation:
-            cacheSyncGeneration,
-
-        sentAt:
-            Date.now()
-    });
-}
-
-function broadcastSeek(time){
-
-    if(!isHost||
-       !conn||
-       !conn.open)
-        return;
-
-    if(videoModeSelect.value===CACHE_MODE){
-
-        sendMessage({
-
-            type:'cache_seek',
-
-            time:time,
-
-            paused:
-                videoPlayer.paused,
-
-            generation:
-                cacheSyncGeneration
-        });
-
-        return;
-    }
-
-    sendMessage({
-
-        type:'seek',
-
-        time:time,
-
-        paused:
-            videoPlayer.paused,
-
-        generation:
-            remoteSyncGeneration
-    });
-}
-
-/* =========================
-   HOST CONTROLS
-========================= */
-
-function hostPlay(){
-
-    videoPlayer.playbackRate=1;
-
-    videoPlayer.play().catch(()=>{});
-
-    playPauseBtn.textContent=
-        '❚❚ Пауза';
-
-    startAntiSleepAudio();
-
-    if(videoModeSelect.value===CACHE_MODE){
-
-        cacheSyncGeneration++;
-
-        sendMessage({
-
-            type:'cache_play',
-
-            time:videoPlayer.currentTime,
-
-            generation:cacheSyncGeneration
-        });
-
-        sendCacheSyncState();
-
-    }else{
-
-        sendSyncState();
-        sendStreamState();
-    }
-}
-
-function hostPause(){
-
-    videoPlayer.pause();
-
-    videoPlayer.playbackRate=1;
-
-    playPauseBtn.textContent=
-        '▶ Грати';
-
-    if(videoModeSelect.value===CACHE_MODE){
-
-        cacheSyncGeneration++;
-
-        sendMessage({
-
-            type:'cache_pause',
-
-            time:videoPlayer.currentTime,
-
-            generation:cacheSyncGeneration
-        });
-
-        sendCacheSyncState();
-
-    }else{
-
-        sendSyncState();
-        sendStreamState();
-    }
-}
-
-function hostRestart(){
-
-    if(videoModeSelect.value===CACHE_MODE){
-
-        cacheSyncGeneration++;
-
-        try{
-            videoPlayer.pause();
-        }catch(e){}
-
-        try{
-            videoPlayer.currentTime=0;
-        }catch(e){}
-
-        videoPlayer.playbackRate=1;
-
-        sendMessage({
-
-            type:'cache_restart',
-
-            time:0,
-
-            generation:cacheSyncGeneration
-        });
-
-        videoPlayer.play().catch(()=>{});
-
-        playPauseBtn.textContent=
-            '❚❚ Пауза';
-
-        setTimeout(()=>{
-
-            if(!isHost||
-               videoModeSelect.value!==CACHE_MODE)
-                return;
-
-            try{
-                videoPlayer.currentTime=0;
-            }catch(e){}
-
-            sendCacheSyncState();
-
-        },100);
-
-        setTimeout(()=>{
-
-            if(!isHost||
-               videoModeSelect.value!==CACHE_MODE)
-                return;
-
-            sendCacheSyncState();
-
-        },500);
-
-        startAntiSleepAudio();
-
-        return;
-    }
-
-    remoteSyncGeneration++;
-
-    try{
-        videoPlayer.pause();
-    }catch(e){}
-
-    try{
-        videoPlayer.currentTime=0;
-    }catch(e){}
-
-    videoPlayer.playbackRate=1;
-
-    sendMessage({
-
-        type:'restart',
-
-        time:0,
-
-        paused:false,
-
-        generation:
-            remoteSyncGeneration
-    });
-
-    sendMessage({
-
-        type:'seek',
-
-        time:0,
-
-        paused:false,
-
-        generation:
-            remoteSyncGeneration
-    });
-
-    videoPlayer.play().catch(()=>{});
-
-    playPauseBtn.textContent=
-        '❚❚ Пауза';
-
-    setTimeout(()=>{
-
-        if(!isHost)
-            return;
-
-        try{
-            videoPlayer.currentTime=0;
-        }catch(e){}
-
-        sendMessage({
-
-            type:'seek',
-
-            time:0,
-
-            paused:false,
-
-            generation:
-                remoteSyncGeneration
-        });
-
-        sendStreamState();
-        sendSyncState();
-
-    },180);
-
-    setTimeout(()=>{
-
-        if(!isHost)
-            return;
-
-        sendStreamState();
-
-    },500);
-
-    startAntiSleepAudio();
-}
-
-/* =========================
-   REMOTE STREAM SYNC ENGINE
-========================= */
-
-function getPredictedHostTime(){
-
-    if(hostSyncPaused)
-        return hostSyncTime;
-
-    if(!hostSyncReceivedAt)
-        return hostSyncTime;
-
-    const elapsed=
-        (performance.now()-
-         hostSyncReceivedAt)/1000;
-
-    return hostSyncTime+elapsed;
-}
-
-function updateRemoteTimeline(){
-
-    if(isHost)
-        return;
-
-    if(!videoPlayer.srcObject)
-        return;
-
-    if(remoteVideoDuration<=0)
-        return;
-
-    if(isDraggingTimeline)
-        return;
-
-    let displayTime=
-        getPredictedHostTime();
-
-    if(!Number.isFinite(displayTime))
-        displayTime=remoteVideoTime;
-
-    displayTime=
-        Math.max(
-            0,
-            Math.min(
-                remoteVideoDuration,
-                displayTime
-            )
-        );
-
-    remoteVideoTime=
-        displayTime;
-
-    const progress=
-        displayTime/
-        remoteVideoDuration*
-        100;
-
-    timelineRange.value=
-        Math.max(
-            0,
-            Math.min(
-                100,
-                progress
-            )
-        );
-
-    timeDisplay.textContent=
-        `${formatTime(displayTime)} / ${formatTime(remoteVideoDuration)}`;
-}
-
-function correctRemoteStream(){
-
-    if(isHost)
-        return;
-
-    if(!videoPlayer.srcObject)
-        return;
-
-    if(hostSyncPaused){
-
-        if(!videoPlayer.paused)
-            videoPlayer.pause();
-
-        videoPlayer.playbackRate=1;
-
-        return;
-    }
-
-    if(videoPlayer.paused){
-
-        videoPlayer.play().catch(()=>{});
-
-        return;
-    }
-
-    const target=
-        getPredictedHostTime();
-
-    const actual=
-        Number(videoPlayer.currentTime);
-
-    if(!Number.isFinite(target)||
-       !Number.isFinite(actual))
-        return;
-
-    const error=
-        target-actual;
-
-    if(Math.abs(error)<0.06){
-
-        videoPlayer.playbackRate=1;
-
-        return;
-    }
-
-    if(Math.abs(error)<0.8){
-
-        let correction=
-            1+(error*0.18);
-
-        correction=
-            Math.max(
-                0.92,
-                Math.min(
-                    1.08,
-                    correction
-                )
-            );
-
-        videoPlayer.playbackRate=
-            correction;
-
-        return;
-    }
-
-    if(Math.abs(error)>=0.8){
-
-        try{
-
-            videoPlayer.currentTime=
-                Math.max(
-                    0,
-                    target
-                );
-
-        }catch(e){}
-
-        videoPlayer.playbackRate=1;
-    }
-}
-
-/* =========================================================
-   НОВА СИНХРОНІЗАЦІЯ ЛОКАЛЬНОГО КЕШУ
-========================================================= */
-
-function getCachePredictedTime(){
-
-    if(cacheSyncPaused)
-        return cacheSyncTime;
-
-    if(!cacheSyncReceivedAt)
-        return cacheSyncTime;
-
-    const elapsed=
-        (performance.now()-
-         cacheSyncReceivedAt)/1000;
-
-    return cacheSyncTime+elapsed;
-}
-
-function updateCacheTimeline(){
-
-    if(isHost)
-        return;
-
-    if(videoModeSelect.value!==CACHE_MODE)
-        return;
-
-    if(!cacheRemoteReady)
-        return;
-
-    if(!Number.isFinite(videoPlayer.duration)||
-       videoPlayer.duration<=0)
-        return;
-
-    if(isDraggingTimeline)
-        return;
-
-    let t=
-        getCachePredictedTime();
-
-    t=
-        Math.max(
-            0,
-            Math.min(
-                videoPlayer.duration,
-                t
-            )
-        );
-
-    timelineRange.value=
-        Math.max(
-            0,
-            Math.min(
-                100,
-                t/videoPlayer.duration*100
-            )
-        );
-
-    timeDisplay.textContent=
-        `${formatTime(t)} / ${formatTime(videoPlayer.duration)}`;
-}
-
-function correctCachePlayback(){
-
-    if(isHost)
-        return;
-
-    if(videoModeSelect.value!==CACHE_MODE)
-        return;
-
-    if(!cacheRemoteReady)
-        return;
-
-    if(cacheSyncPaused){
-
-        if(!videoPlayer.paused)
-            videoPlayer.pause();
-
-        videoPlayer.playbackRate=1;
-
-        return;
-    }
-
-    if(videoPlayer.paused){
-
-        videoPlayer.play().catch(()=>{});
-
-        return;
-    }
-
-    const target=
-        getCachePredictedTime();
-
-    const actual=
-        Number(videoPlayer.currentTime);
-
-    if(!Number.isFinite(target)||
-       !Number.isFinite(actual))
-        return;
-
-    const error=
-        target-actual;
-
-    /*
-      У локального файлу нам уже не треба
-      боротися з мережевою затримкою відео.
-      Тому допускаємо дуже малу похибку.
-    */
-
-    if(Math.abs(error)<0.025){
-
-        videoPlayer.playbackRate=1;
-
-        return;
-    }
-
-    /*
-      Якщо розбіжність невелика,
-      плавно підганяємо.
-    */
-    if(Math.abs(error)<0.25){
-
-        let rate=
-            1+(error*0.35);
-
-        rate=
-            Math.max(
-                0.95,
-                Math.min(
-                    1.05,
-                    rate
-                )
-            );
-
-        videoPlayer.playbackRate=
-            rate;
-
-        return;
-    }
-
-    /*
-      Якщо різниця вже помітна —
-      робимо жорстке вирівнювання.
-    */
-
-    const now=
-        performance.now();
-
-    if(now-cacheLastHardSync>500){
-
-        cacheLastHardSync=now;
-
-        try{
-
-            videoPlayer.currentTime=
-                Math.max(
-                    0,
-                    Math.min(
-                        videoPlayer.duration,
-                        target
-                    )
-                );
-
-        }catch(e){}
-
-        videoPlayer.playbackRate=1;
-    }
-}
-
-if(remoteSyncCorrectionTimer)
-    clearInterval(remoteSyncCorrectionTimer);
-
-remoteSyncCorrectionTimer=
-    setInterval(()=>{
-
-        if(!isHost){
-
-            if(videoModeSelect.value==='cache'){
-
-                correctCachePlayback();
-                updateCacheTimeline();
-
-            }else if(videoPlayer.srcObject){
-
-                correctRemoteStream();
-                updateRemoteTimeline();
-
-            }
-        }
-
-    },80);
-
-/* =========================
-   CONNECTION
-========================= */
-
-function setupConnection(){
-
-    const handleReady=()=>{
-
-        connectionStatus.textContent=
-            'Статус: Підключено!';
-
-        sendScreenInfo();
-
-        setTimeout(async()=>{
-
-            setupCard.style.display='none';
-
-            playerScreen.style.display='block';
-
-            timelineContainer.style.display='flex';
-
-            updateVideoStyle();
-
-            startAntiSleepAudio();
-
-            if(isHost){
-
-                videoPlayer.muted=false;
-                videoPlayer.volume=1;
-
-                playPauseBtn.textContent=
-                    '▶ Грати';
-
-                setTimeout(()=>{
-
-                    if(
-                        videoModeSelect.value==='stream'&&
-                        localVideoBlobUrl
-                    ){
-
-                        startStreaming();
-
-                    }
-
-                    if(
-                        videoModeSelect.value===CACHE_MODE&&
-                        localVideoBlobUrl
-                    ){
-
-                        /*
-                          Передача відбувається після
-                          завантаження метаданих.
-                        */
-                        if(
-                            videoPlayer.readyState>=1&&
-                            videoInput.files&&
-                            videoInput.files[0]
-                        ){
-
-                            startCacheTransfer(
-                                videoInput.files[0]
-                            );
-                        }
-                    }
-
-                    sendStreamState();
-                    sendSyncState();
-                    sendCacheSyncState();
-
-                },700);
-
-                if(syncInterval)
-                    clearInterval(syncInterval);
-
-                syncInterval=
-                    setInterval(()=>{
-
-                        if(conn&&conn.open){
-
-                            if(
-                                videoModeSelect.value==='stream'
-                            ){
-
-                                sendStreamState();
-
-                            }else if(
-                                videoModeSelect.value==='local'
-                            ){
-
-                                sendSyncState();
-
-                            }else if(
-                                videoModeSelect.value===CACHE_MODE
-                            ){
-
-                                sendCacheSyncState();
-                            }
-                        }
-
-                    },100);
-
-            }else{
-
-                playPauseBtn.textContent=
-                    '▶ Грати';
-
-                if(videoModeSelect.value===CACHE_MODE){
-
-                    await tryLoadExistingCache();
-
-                    sendMessage({
-
-                        type:'cache_client_ready'
-                    });
-                }
-            }
-
-        },300);
-    };
-
-    if(conn.open){
-
-        handleReady();
-
-    }else{
-
-        conn.on('open',handleReady);
-    }
-
-    conn.on('data',async data=>{
-
-        try{
-
-            /*
-              Усі повідомлення керування
-              залишаються JSON.
-
-              У cache режимі chunks приходять
-              як об'єкти {type:'cache_chunk'}.
-            */
-
-            let msg=data;
-
-            if(typeof data==='string'){
-
-                msg=JSON.parse(data);
-
-            }else if(
-                data instanceof ArrayBuffer||
-                data instanceof Uint8Array||
-                data instanceof Blob
-            ){
-
-                /*
-                  Старий режим не використовує
-                  сирі binary повідомлення напряму.
-                */
-
-                return;
-            }
-
-            if(!msg||typeof msg!=='object')
-                return;
-
-            if(msg.type==='screen_info'){
-
-                partnerWidth=
-                    Number(msg.width)||0;
-
-                partnerHeight=
-                    Number(msg.height)||0;
-
-                updateVideoStyle();
-
-                if(isHost)
-                    sendScreenInfo();
-            }
-
-            else if(msg.type==='cache_transfer_start'&&!isHost){
-
-                if(videoModeSelect.value!==CACHE_MODE)
-                    return;
-
-                await cacheReceiveStart(msg);
-            }
-
-            else if(msg.type==='cache_chunk'&&!isHost){
-
-                if(videoModeSelect.value!==CACHE_MODE)
-                    return;
-
-                await cacheReceiveChunk(msg);
-            }
-
-            else if(msg.type==='cache_transfer_end'&&!isHost){
-
-                if(videoModeSelect.value!==CACHE_MODE)
-                    return;
-
-                await cacheReceiveEnd(msg);
-            }
-
-            else if(msg.type==='cache_ready'&&isHost){
-
-                if(videoModeSelect.value!==CACHE_MODE)
-                    return;
-
-                cacheRemoteReady=true;
-
-                cacheRemoteDuration=
-                    Number(msg.duration)||0;
-
-                connectionStatus.textContent=
-                    'Статус: Відео успішно передано на S10. Готово до синхронного відтворення.';
-
-                /*
-                  Тепер обидва мають локальний файл.
-                  Можемо стартувати тільки після
-                  підтвердження S10.
-                */
-
-                sendCacheSyncState();
-            }
-
-            else if(msg.type==='cache_client_ready'&&isHost){
-
-                if(videoModeSelect.value!==CACHE_MODE)
-                    return;
-
-                if(
-                    videoInput.files&&
-                    videoInput.files[0]
-                ){
-
-                    startCacheTransfer(
-                        videoInput.files[0]
-                    );
-
-                }else{
-
-                    connectionStatus.textContent=
-                        'Статус: Виберіть відеофайл для кешу.';
-                }
-            }
-
-            else if(msg.type==='cache_host_ready'&&!isHost){
-
-                if(videoModeSelect.value!==CACHE_MODE)
-                    return;
-
-                cacheRemoteDuration=
-                    Number(msg.duration)||0;
-            }
-
-            else if(msg.type==='video_change_start'&&!isHost){
-
-                clearRemoteVideo();
-
-                connectionStatus.textContent=
-                    'Статус: Головний телефон змінює відео...';
-            }
-
-            else if(msg.type==='video_change_ready'&&!isHost){
-
-                remoteVideoDuration=
-                    Number(msg.duration)||0;
-
-                remoteVideoTime=0;
-
-                remoteVideoPaused=true;
-
-                hostSyncTime=0;
-                hostSyncReceivedAt=0;
-                hostSyncPaused=true;
-
-                timelineRange.value=0;
-
-                timeDisplay.textContent=
-                    `00:00 / ${formatTime(remoteVideoDuration)}`;
-
-                connectionStatus.textContent=
-                    'Статус: Очікування нового відеопотоку...';
-            }
-
-            /* =========================
-               STREAM STATE CLIENT
-            ========================= */
-
-            else if(msg.type==='stream_state'&&!isHost){
-
-                if(videoModeSelect.value==='cache')
-                    return;
-
-                const generation=
-                    Number.isFinite(Number(msg.generation))
-                    ?Number(msg.generation)
-                    :remoteSyncGeneration;
-
-                if(generation<remoteSyncGeneration)
-                    return;
-
-                remoteSyncGeneration=
-                    generation;
-
-                const newTime=
-                    Number(msg.time);
-
-                if(!Number.isFinite(newTime))
-                    return;
-
-                remoteVideoDuration=
-                    Number(msg.duration)||0;
-
-                remoteVideoPaused=
-                    !!msg.paused;
-
-                hostSyncTime=
-                    Math.max(
-                        0,
-                        newTime
-                    );
-
-                hostSyncReceivedAt=
-                    performance.now();
-
-                hostSyncPaused=
-                    remoteVideoPaused;
-
-                if(remoteVideoDuration>0&&
-                   !isDraggingTimeline){
-
-                    remoteVideoTime=
-                        hostSyncTime;
-
-                    const percent=
-                        remoteVideoTime/
-                        remoteVideoDuration*
-                        100;
-
-                    timelineRange.value=
-                        Math.max(
-                            0,
-                            Math.min(
-                                100,
-                                percent
-                            )
-                        );
-
-                    timeDisplay.textContent=
-                        `${formatTime(remoteVideoTime)} / ${formatTime(remoteVideoDuration)}`;
-                }
-
-                if(videoPlayer.srcObject){
-
-                    if(remoteVideoPaused){
-
-                        videoPlayer.pause();
-
-                        videoPlayer.playbackRate=1;
-
-                        playPauseBtn.textContent=
-                            '▶ Грати';
-
-                    }else{
-
-                        if(videoPlayer.paused){
-
-                            const actual=
-                                Number(videoPlayer.currentTime);
-
-                            if(Number.isFinite(actual)&&
-                               Math.abs(actual-hostSyncTime)>0.5){
-
-                                try{
-                                    videoPlayer.currentTime=
-                                        hostSyncTime;
-                                }catch(e){}
-                            }
-
-                            videoPlayer.play().catch(()=>{});
-                        }
-
-                        playPauseBtn.textContent=
-                            '❚❚ Пауза';
-
-                        startAntiSleepAudio();
-                        requestWakeLock();
-                    }
-                }
-            }
-
-            /* =========================
-               CACHE SYNC STATE
-            ========================= */
-
-            else if(msg.type==='cache_sync_state'&&!isHost){
-
-                if(videoModeSelect.value!==CACHE_MODE)
-                    return;
-
-                if(!cacheRemoteReady)
-                    return;
-
-                const generation=
-                    Number.isFinite(Number(msg.generation))
-                    ?Number(msg.generation)
-                    :cacheSyncGeneration;
-
-                if(generation<cacheSyncGeneration)
-                    return;
-
-                cacheSyncGeneration=
-                    generation;
-
-                const newTime=
-                    Number(msg.time);
-
-                const duration=
-                    Number(msg.duration)||0;
-
-                if(!Number.isFinite(newTime))
-                    return;
-
-                cacheSyncTime=
-                    Math.max(
-                        0,
-                        newTime
-                    );
-
-                cacheSyncReceivedAt=
-                    performance.now();
-
-                cacheSyncPaused=
-                    !!msg.paused;
-
-                if(duration>0)
-                    remoteVideoDuration=duration;
-
-                if(!isDraggingTimeline){
-
-                    const d=
-                        Number.isFinite(videoPlayer.duration)&&
-                        videoPlayer.duration>0
-                        ?videoPlayer.duration
-                        :duration;
-
-                    if(d>0){
-
-                        timelineRange.value=
-                            Math.max(
-                                0,
-                                Math.min(
-                                    100,
-                                    cacheSyncTime/d*100
-                                )
-                            );
-
-                        timeDisplay.textContent=
-                            `${formatTime(cacheSyncTime)} / ${formatTime(d)}`;
-                    }
-                }
-
-                if(cacheSyncPaused){
-
-                    videoPlayer.pause();
-                    videoPlayer.playbackRate=1;
-
-                    playPauseBtn.textContent=
-                        '▶ Грати';
-
-                }else{
-
-                    const actual=
-                        Number(videoPlayer.currentTime);
-
-                    if(
-                        Number.isFinite(actual)&&
-                        Math.abs(actual-cacheSyncTime)>0.25
-                    ){
-
-                        try{
-
-                            videoPlayer.currentTime=
-                                cacheSyncTime;
-
-                        }catch(e){}
-                    }
-
-                    videoPlayer.play().catch(()=>{});
-
-                    videoPlayer.playbackRate=1;
-
-                    playPauseBtn.textContent=
-                        '❚❚ Пауза';
-
-                    startAntiSleepAudio();
-                    requestWakeLock();
-                }
-            }
-
-            /* =========================
-               CACHE PLAY
-            ========================= */
-
-            else if(msg.type==='cache_play'&&!isHost){
-
-                if(videoModeSelect.value!==CACHE_MODE)
-                    return;
-
-                const generation=
-                    Number(msg.generation);
-
-                if(
-                    Number.isFinite(generation)&&
-                    generation<cacheSyncGeneration
-                )
-                    return;
-
-                if(Number.isFinite(generation))
-                    cacheSyncGeneration=
-                        generation;
-
-                const t=
-                    Number(msg.time);
-
-                if(Number.isFinite(t)){
-
-                    cacheSyncTime=t;
-
-                    cacheSyncReceivedAt=
-                        performance.now();
-                }
-
-                cacheSyncPaused=false;
-
-                const actual=
-                    Number(videoPlayer.currentTime);
-
-                if(
-                    Number.isFinite(t)&&
-                    Number.isFinite(actual)&&
-                    Math.abs(actual-t)>0.25
-                ){
-
-                    try{
-                        videoPlayer.currentTime=t;
-                    }catch(e){}
-                }
-
-                videoPlayer.playbackRate=1;
-
-                videoPlayer.play().catch(()=>{});
-
-                playPauseBtn.textContent=
-                    '❚❚ Пауза';
-
-                startAntiSleepAudio();
-                requestWakeLock();
-            }
-
-            /* =========================
-               CACHE PAUSE
-            ========================= */
-
-            else if(msg.type==='cache_pause'&&!isHost){
-
-                if(videoModeSelect.value!==CACHE_MODE)
-                    return;
-
-                const generation=
-                    Number(msg.generation);
-
-                if(
-                    Number.isFinite(generation)&&
-                    generation<cacheSyncGeneration
-                )
-                    return;
-
-                if(Number.isFinite(generation))
-                    cacheSyncGeneration=
-                        generation;
-
-                const t=
-                    Number(msg.time);
-
-                if(Number.isFinite(t)){
-
-                    cacheSyncTime=t;
-
-                    cacheSyncReceivedAt=
-                        performance.now();
-                }
-
-                cacheSyncPaused=true;
-
-                if(
-                    Number.isFinite(t)&&
-                    Number.isFinite(videoPlayer.currentTime)&&
-                    Math.abs(videoPlayer.currentTime-t)>0.05
-                ){
-
-                    try{
-                        videoPlayer.currentTime=t;
-                    }catch(e){}
-                }
-
-                videoPlayer.pause();
-                videoPlayer.playbackRate=1;
-
-                playPauseBtn.textContent=
-                    '▶ Грати';
-            }
-
-            /* =========================
-               CACHE RESTART
-            ========================= */
-
-            else if(msg.type==='cache_restart'&&!isHost){
-
-                if(videoModeSelect.value!==CACHE_MODE)
-                    return;
-
-                const generation=
-                    Number(msg.generation);
-
-                if(
-                    Number.isFinite(generation)&&
-                    generation<cacheSyncGeneration
-                )
-                    return;
-
-                if(Number.isFinite(generation))
-                    cacheSyncGeneration=
-                        generation;
-
-                cacheSyncTime=0;
-
-                cacheSyncReceivedAt=
-                    performance.now();
-
-                cacheSyncPaused=false;
-
-                cacheLastHardSync=
-                    performance.now();
-
-                try{
-                    videoPlayer.pause();
-                }catch(e){}
-
-                try{
-                    videoPlayer.currentTime=0;
-                }catch(e){}
-
-                videoPlayer.playbackRate=1;
-
-                timelineRange.value=0;
-
-                if(videoPlayer.duration>0){
-
-                    timeDisplay.textContent=
-                        `00:00 / ${formatTime(videoPlayer.duration)}`;
-                }
-
-                videoPlayer.play().catch(()=>{});
-
-                playPauseBtn.textContent=
-                    '❚❚ Пауза';
-
-                /*
-                  Два повторних вирівнювання
-                  для максимально однакового старту.
-                */
-                setTimeout(()=>{
-
-                    if(videoModeSelect.value!==CACHE_MODE)
-                        return;
-
-                    try{
-                        videoPlayer.currentTime=0;
-                    }catch(e){}
-
-                    videoPlayer.playbackRate=1;
-
-                    videoPlayer.play().catch(()=>{});
-
-                },120);
-
-                setTimeout(()=>{
-
-                    if(videoModeSelect.value!==CACHE_MODE)
-                        return;
-
-                    cacheSyncTime=0;
-
-                    cacheSyncReceivedAt=
-                        performance.now();
-
-                    try{
-                        videoPlayer.currentTime=0;
-                    }catch(e){}
-
-                    videoPlayer.playbackRate=1;
-
-                },350);
-
-                startAntiSleepAudio();
-                requestWakeLock();
-            }
-
-            /* =========================
-               CACHE SEEK
-            ========================= */
-
-            else if(msg.type==='cache_seek'&&!isHost){
-
-                if(videoModeSelect.value!==CACHE_MODE)
-                    return;
-
-                if(isDraggingTimeline)
-                    return;
-
-                const generation=
-                    Number(msg.generation);
-
-                if(
-                    Number.isFinite(generation)&&
-                    generation<cacheSyncGeneration
-                )
-                    return;
-
-                if(Number.isFinite(generation))
-                    cacheSyncGeneration=
-                        generation;
-
-                const t=
-                    Math.max(
-                        0,
-                        Number(msg.time)||0
-                    );
-
-                cacheSyncTime=t;
-
-                cacheSyncReceivedAt=
-                    performance.now();
-
-                cacheSyncPaused=
-                    !!msg.paused;
-
-                cacheLastHardSync=
-                    performance.now();
-
-                try{
-                    videoPlayer.currentTime=t;
-                }catch(e){}
-
-                videoPlayer.playbackRate=1;
-
-                if(videoPlayer.duration>0){
-
-                    timelineRange.value=
-                        Math.max(
-                            0,
-                            Math.min(
-                                100,
-                                t/videoPlayer.duration*100
-                            )
-                        );
-
-                    timeDisplay.textContent=
-                        `${formatTime(t)} / ${formatTime(videoPlayer.duration)}`;
-                }
-
-                if(msg.paused){
-
-                    videoPlayer.pause();
-
-                    playPauseBtn.textContent=
-                        '▶ Грати';
-
-                }else{
-
-                    /*
-                      Повторна установка після
-                      короткої затримки підвищує
-                      точність після seek.
-                    */
-                    setTimeout(()=>{
-
-                        try{
-                            videoPlayer.currentTime=t;
-                        }catch(e){}
-
-                        videoPlayer.playbackRate=1;
-
-                        videoPlayer.play().catch(()=>{});
-
-                    },80);
-
-                    setTimeout(()=>{
-
-                        try{
-                            videoPlayer.currentTime=t;
-                        }catch(e){}
-
-                        videoPlayer.playbackRate=1;
-
-                        videoPlayer.play().catch(()=>{});
-
-                    },220);
-
-                    playPauseBtn.textContent=
-                        '❚❚ Пауза';
-                }
-            }
-
-            /* =========================
-               LOCAL SYNC
-            ========================= */
-
-            else if(msg.type==='sync_state'&&!isHost){
-
-                if(videoPlayer.srcObject)
-                    return;
-
-                if(videoModeSelect.value!=='local')
-                    return;
-
-                if(isDraggingTimeline)
-                    return;
-
-                const hostTime=
-                    Number(msg.time);
-
-                if(!Number.isFinite(hostTime))
-                    return;
-
-                const current=
-                    videoPlayer.currentTime;
-
-                const diff=
-                    current-hostTime;
-
-                if(Math.abs(diff)>.25){
-
-                    try{
-
-                        videoPlayer.currentTime=
-                            Math.max(
-                                0,
-                                hostTime
-                            );
-
-                    }catch(e){}
-
-                    videoPlayer.playbackRate=1;
-
-                }else if(Math.abs(diff)>.035){
-
-                    let rate=
-                        1-diff*.08;
-
-                    rate=
-                        Math.max(
-                            .97,
-                            Math.min(
-                                1.03,
-                                rate
-                            )
-                        );
-
-                    videoPlayer.playbackRate=
-                        rate;
-
-                }else{
-
-                    videoPlayer.playbackRate=1;
-                }
-
-                if(msg.paused){
-
-                    videoPlayer.pause();
-
-                    playPauseBtn.textContent=
-                        '▶ Грати';
-
-                }else{
-
-                    videoPlayer.play().catch(()=>{});
-
-                    playPauseBtn.textContent=
-                        '❚❚ Пауза';
-
-                    startAntiSleepAudio();
-                    requestWakeLock();
-                }
-            }
-
-            /* =========================
-               RESTART STREAM
-            ========================= */
-
-            else if(msg.type==='restart'&&!isHost){
-
-                if(videoModeSelect.value==='cache')
-                    return;
-
-                const generation=
-                    Number(msg.generation);
-
-                if(Number.isFinite(generation)&&
-                   generation<remoteSyncGeneration){
-
-                    return;
-                }
-
-                if(Number.isFinite(generation))
-                    remoteSyncGeneration=
-                        generation;
-
-                hostSyncTime=0;
-
-                hostSyncReceivedAt=
-                    performance.now();
-
-                hostSyncPaused=false;
-
-                remoteVideoTime=0;
-
-                if(remoteVideoDuration>0){
-
-                    timelineRange.value=0;
-
-                    timeDisplay.textContent=
-                        `00:00 / ${formatTime(remoteVideoDuration)}`;
-                }
-
-                try{
-
-                    videoPlayer.currentTime=0;
-
-                }catch(e){}
-
-                videoPlayer.playbackRate=1;
-
-                videoPlayer.play().catch(()=>{});
-
-                playPauseBtn.textContent=
-                    '❚❚ Пауза';
-
-                setTimeout(()=>{
-
-                    if(!videoPlayer.srcObject)
-                        return;
-
-                    try{
-                        videoPlayer.currentTime=0;
-                    }catch(e){}
-
-                    videoPlayer.playbackRate=1;
-
-                    videoPlayer.play().catch(()=>{});
-
-                },180);
-
-                setTimeout(()=>{
-
-                    if(!videoPlayer.srcObject)
-                        return;
-
-                    hostSyncTime=0;
-
-                    hostSyncReceivedAt=
-                        performance.now();
-
-                },500);
-            }
-
-            /* =========================
-               SEEK STREAM
-            ========================= */
-
-            else if(msg.type==='seek'){
-
-                if(isDraggingTimeline)
-                    return;
-
-                if(isHost)
-                    return;
-
-                if(videoModeSelect.value==='cache')
-                    return;
-
-                const generation=
-                    Number(msg.generation);
-
-                if(Number.isFinite(generation)&&
-                   generation<remoteSyncGeneration){
-
-                    return;
-                }
-
-                if(Number.isFinite(generation))
-                    remoteSyncGeneration=
-                        generation;
-
-                const newTime=
-                    Math.max(
-                        0,
-                        Number(msg.time)||0
-                    );
-
-                remoteVideoTime=
-                    newTime;
-
-                hostSyncTime=
-                    newTime;
-
-                hostSyncReceivedAt=
-                    performance.now();
-
-                hostSyncPaused=
-                    !!msg.paused;
-
-                if(remoteVideoDuration>0){
-
-                    timelineRange.value=
-                        Math.max(
-                            0,
-                            Math.min(
-                                100,
-                                newTime/
-                                remoteVideoDuration*
-                                100
-                            )
-                        );
-
-                    timeDisplay.textContent=
-                        `${formatTime(newTime)} / ${formatTime(remoteVideoDuration)}`;
-                }
-
-                if(videoPlayer.srcObject){
-
-                    try{
-
-                        videoPlayer.currentTime=
-                            newTime;
-
-                    }catch(e){}
-
-                    videoPlayer.playbackRate=1;
-
-                    if(msg.paused){
-
-                        videoPlayer.pause();
-
-                        playPauseBtn.textContent=
-                            '▶ Грати';
-
-                    }else{
-
-                        videoPlayer.play().catch(()=>{});
-
-                        playPauseBtn.textContent=
-                            '❚❚ Пауза';
-                    }
-                }
-            }
-
-            /* =========================
-               SEEK REQUEST
-            ========================= */
-
-            else if(msg.type==='seek_request'&&isHost){
-
-                const requestedTime=
-                    Number(msg.time);
-
-                const duration=
-                    Number(videoPlayer.duration);
-
-                if(Number.isFinite(requestedTime)&&
-                   Number.isFinite(duration)&&
-                   duration>0){
-
-                    if(videoModeSelect.value===CACHE_MODE){
-
-                        cacheSyncGeneration++;
-
-                        videoPlayer.currentTime=
-                            Math.max(
-                                0,
-                                Math.min(
-                                    duration,
-                                    requestedTime
-                                )
-                            );
-
-                        videoPlayer.playbackRate=1;
-
-                        broadcastSeek(
-                            videoPlayer.currentTime
-                        );
-
-                        sendCacheSyncState();
-
-                    }else{
-
-                        remoteSyncGeneration++;
-
-                        videoPlayer.currentTime=
-                            Math.max(
-                                0,
-                                Math.min(
-                                    duration,
-                                    requestedTime
-                                )
-                            );
-
-                        videoPlayer.playbackRate=1;
-
-                        broadcastSeek(
-                            videoPlayer.currentTime
-                        );
-
-                        sendStreamState();
-                        sendSyncState();
-                    }
-                }
-            }
-
-            else if(msg.type==='play_request'&&isHost){
-
-                hostPlay();
-            }
-
-            else if(msg.type==='pause_request'&&isHost){
-
-                hostPause();
-            }
-
-            else if(msg.type==='restart_request'&&isHost){
-
-                hostRestart();
-            }
-
-        }catch(e){
-
-            console.error(
-                'Message error:',
-                e
-            );
-        }
-    });
-
-    conn.on('close',()=>{
-
-        if(syncInterval){
-
-            clearInterval(syncInterval);
-
-            syncInterval=null;
-        }
-
-        cacheHostSending=false;
-
-        alert(
-            "З'єднання закрито"
-        );
-
-        location.reload();
-    });
-
-    conn.on('error',err=>{
-
-        console.error(
-            'Connection error:',
-            err
-        );
-
-        connectionStatus.textContent=
-            'Статус: Помилка зʼєднання.';
-    });
-}
-
-/* =========================
-   POSITION
-========================= */
-
-positionSelect.addEventListener('change',()=>{
-
-    sendScreenInfo();
-
-    updateVideoStyle();
-
-    saveSettings();
-});
-
-/* =========================
-   VIDEO METADATA
-========================= */
-
-videoPlayer.addEventListener('loadedmetadata',()=>{
-
-    updateVideoStyle();
-
-    if(isHost&&
-       Number.isFinite(videoPlayer.duration)&&
-       videoPlayer.duration>0){
-
-        timelineRange.value=0;
-
-        timeDisplay.textContent=
-            `${formatTime(videoPlayer.currentTime)} / ${formatTime(videoPlayer.duration)}`;
-
-        if(conn&&conn.open){
-
-            sendStreamState();
-            sendSyncState();
-            sendCacheSyncState();
-        }
-    }
-});
-
-/* =========================
-   VIDEO STYLE
-========================= */
-
-function updateVideoStyle(){
-
-    const myWidth=
-        window.innerWidth;
-
-    const pWidth=
-        partnerWidth>0
-        ?partnerWidth
-        :myWidth;
-
-    const videoAspect=
-        videoPlayer.videoWidth&&
-        videoPlayer.videoHeight
-        ?videoPlayer.videoWidth/
-         videoPlayer.videoHeight
-        :16/9;
-
-    const combinedWidth=
-        myWidth+pWidth;
-
-    const finalWidth=
-        combinedWidth*
-        videoScaleMultiplier;
-
-    const finalHeight=
-        finalWidth/
-        videoAspect;
-
-    const leftPos=
-        positionSelect.value==='left'
-        ?videoOffsetX
-        :videoOffsetX-pWidth;
-
-    videoPlayer.style.width=
-        finalWidth+'px';
-
-    videoPlayer.style.height=
-        finalHeight+'px';
-
-    videoPlayer.style.transform=
-        `translate3d(${leftPos}px,${videoOffsetY}px,0)`;
-}
-
-window.addEventListener('resize',()=>{
-
-    updateVideoStyle();
-
-    if(conn&&conn.open)
-        sendScreenInfo();
-});
-
-if(window.visualViewport){
-
-    window.visualViewport.addEventListener(
-        'resize',
-        ()=>{
-            updateVideoStyle();
-        }
-    );
-}
-
-/* =========================
-   PLAY / PAUSE
-========================= */
-
-playPauseBtn.addEventListener('click',()=>{
-
-    startAntiSleepAudio();
-
-    if(isHost){
-
-        if(videoPlayer.paused)
-            hostPlay();
-        else
-            hostPause();
-
-    }else{
-
-        if(conn&&conn.open){
-
-            if(videoModeSelect.value===CACHE_MODE){
-
-                sendMessage({
-
-                    type:
-                        videoPlayer.paused
-                        ?'play_request'
-                        :'pause_request'
-                });
-
-            }else{
-
-                sendMessage({
-
-                    type:
-                        videoPlayer.paused
-                        ?'play_request'
-                        :'pause_request'
-                });
-            }
-        }
-    }
-});
-
-/* =========================
-   RESTART
-========================= */
-
-restartBtn.addEventListener('click',()=>{
-
-    startAntiSleepAudio();
-
-    if(isHost){
-
-        hostRestart();
-
-    }else if(conn&&conn.open){
-
-        sendMessage({
-            type:'restart_request'
-        });
-    }
-});
-
-/* =========================
-   FULLSCREEN
-========================= */
-
-fullscreenBtn.addEventListener('click',()=>{
-
-    if(!document.fullscreenElement){
-
-        document.documentElement
-            .requestFullscreen()
-            .catch(()=>{});
-
-    }else{
-
-        document.exitFullscreen();
-    }
-});
-
-/* =========================
-   CONTROLS
-========================= */
-
-playerScreen.addEventListener('click',e=>{
-
-    startAntiSleepAudio();
-
-    if(hasSwiped){
-
-        hasSwiped=false;
-
-        return;
-    }
-
-    if(!playerControls.contains(e.target)){
-
-        playerControls.style.display=
-            playerControls.style.display==='none'
-            ?'flex'
-            :'none';
-    }
-});
-
-/* =========================
-   FORMAT TIME
-========================= */
-
-function formatTime(seconds){
-
-    if(!Number.isFinite(seconds)||seconds<0)
-        return '00:00';
-
-    const hours=
-        Math.floor(seconds/3600);
-
-    const mins=
-        Math.floor(
-            (seconds%3600)/60
-        );
-
-    const secs=
-        Math.floor(
-            seconds%60
-        );
-
-    if(hours>0){
-
-        return String(hours).padStart(2,'0')+
-               ':'+
-               String(mins).padStart(2,'0')+
-               ':'+
-               String(secs).padStart(2,'0');
-    }
-
-    return String(mins).padStart(2,'0')+
-           ':'+
-           String(secs).padStart(2,'0');
-}
-
-/* =========================
-   TIME UPDATE
-========================= */
-
-videoPlayer.addEventListener('timeupdate',()=>{
-
-    if(isHost&&
-       Number.isFinite(videoPlayer.duration)&&
-       videoPlayer.duration>0){
-
-        if(!isDraggingTimeline){
-
-            const progress=
-                videoPlayer.currentTime/
-                videoPlayer.duration*
-                100;
-
-            timelineRange.value=
-                Math.max(
-                    0,
-                    Math.min(
-                        100,
-                        progress
-                    )
-                );
-
-            timeDisplay.textContent=
-                `${formatTime(videoPlayer.currentTime)} / ${formatTime(videoPlayer.duration)}`;
-        }
-    }
-
-    /*
-      У stream режимі S10 таймлайн
-      не бере час з MediaStream.
-
-      У cache режимі також не перезаписуємо
-      час S10 його локальним currentTime,
-      тому що головним годинником залишається S25+.
-    */
-
-    if(!isHost&&
-       !videoPlayer.srcObject&&
-       videoModeSelect.value==='local'&&
-       Number.isFinite(videoPlayer.duration)&&
-       videoPlayer.duration>0){
-
-        if(!isDraggingTimeline){
-
-            const progress=
-                videoPlayer.currentTime/
-                videoPlayer.duration*
-                100;
-
-            timelineRange.value=
-                Math.max(
-                    0,
-                    Math.min(
-                        100,
-                        progress
-                    )
-                );
-
-            timeDisplay.textContent=
-                `${formatTime(videoPlayer.currentTime)} / ${formatTime(videoPlayer.duration)}`;
-        }
-    }
-});
-
-/* =========================
-   TIMELINE
-========================= */
-
-function startTimelineDrag(){
-
-    isDraggingTimeline=true;
-}
-
-timelineRange.addEventListener(
-    'pointerdown',
-    startTimelineDrag
-);
-
-timelineRange.addEventListener(
-    'mousedown',
-    startTimelineDrag
-);
-
-timelineRange.addEventListener(
-    'touchstart',
-    startTimelineDrag,
-    {passive:true}
-);
-
-timelineRange.addEventListener('input',()=>{
-
-    let duration=0;
-
-    if(Number.isFinite(videoPlayer.duration)&&
-       videoPlayer.duration>0){
-
-        duration=
-            videoPlayer.duration;
-
-    }else if(remoteVideoDuration>0){
-
-        duration=
-            remoteVideoDuration;
-    }
-
-    if(duration<=0)
-        return;
-
-    const newTime=
-        Number(timelineRange.value)/
-        100*
-        duration;
-
-    timeDisplay.textContent=
-        `${formatTime(newTime)} / ${formatTime(duration)}`;
-});
-
-function finishTimelineDrag(){
-
-    let duration=0;
-
-    if(Number.isFinite(videoPlayer.duration)&&
-       videoPlayer.duration>0){
-
-        duration=
-            videoPlayer.duration;
-
-    }else if(remoteVideoDuration>0){
-
-        duration=
-            remoteVideoDuration;
-    }
-
-    if(duration<=0){
-
-        isDraggingTimeline=false;
-
-        return;
-    }
-
-    const newTime=
-        Number(timelineRange.value)/
-        100*
-        duration;
-
-    if(isHost){
-
-        if(videoModeSelect.value===CACHE_MODE){
-
-            cacheSyncGeneration++;
-
-            try{
-                videoPlayer.currentTime=newTime;
-            }catch(e){}
-
-            videoPlayer.playbackRate=1;
-
-            broadcastSeek(newTime);
-
-            sendCacheSyncState();
-
-        }else{
-
-            remoteSyncGeneration++;
-
-            try{
-                videoPlayer.currentTime=newTime;
-            }catch(e){}
-
-            videoPlayer.playbackRate=1;
-
-            broadcastSeek(newTime);
-
-            sendStreamState();
-            sendSyncState();
-        }
-
-    }else{
-
-        if(conn&&conn.open){
-
-            sendMessage({
-
-                type:'seek_request',
-
-                time:newTime
-            });
-        }
-    }
-
-    isDraggingTimeline=false;
-}
-
-timelineRange.addEventListener(
-    'pointerup',
-    finishTimelineDrag
-);
-
-timelineRange.addEventListener(
-    'mouseup',
-    finishTimelineDrag
-);
-
-timelineRange.addEventListener(
-    'touchend',
-    finishTimelineDrag,
-    {passive:true}
-);
-
-/* =========================
-   VOLUME
-========================= */
-
-playerScreen.addEventListener('touchstart',e=>{
-
-    startAntiSleepAudio();
-
-    if(playerControls.contains(e.target))
-        return;
-
-    if(e.touches.length===1){
-
-        isSwipingVolume=true;
-
-        touchStartY=
-            e.touches[0].clientY;
-
-        touchStartX=
-            e.touches[0].clientX;
-
-        touchStartVolume=
-            videoPlayer.volume;
-
-        hasSwiped=false;
-    }
-
-},{passive:true});
-
-playerScreen.addEventListener('touchmove',e=>{
-
-    if(!isSwipingVolume||
-       e.touches.length!==1)
-        return;
-
-    const diffY=
-        touchStartY-
-        e.touches[0].clientY;
-
-    const diffX=
-        touchStartX-
-        e.touches[0].clientX;
-
-    if(Math.abs(diffY)>10||
-       Math.abs(diffX)>10)
-        hasSwiped=true;
-
-    if(hasSwiped){
-
-        const newVolume=
-            Math.max(
-                0,
-                Math.min(
-                    1,
-                    touchStartVolume+
-                    diffY/
-                    window.innerHeight*
-                    1.5
-                )
-            );
-
-        videoPlayer.volume=
-            newVolume;
-
-        showVolumeIndicator(
-            Math.round(
-                newVolume*100
-            )
-        );
-    }
-
-},{passive:true});
-
-playerScreen.addEventListener(
-    'touchend',
-    ()=>{
-        isSwipingVolume=false;
-    }
-);
-
-function showVolumeIndicator(volPercent){
-
-    volumeIndicator.textContent=
-        `🔊 Гучність: ${volPercent}%`;
-
-    volumeIndicator.style.display=
-        'block';
-
-    if(volumeTimeout)
-        clearTimeout(volumeTimeout);
-
-    volumeTimeout=
-        setTimeout(()=>{
-
-            volumeIndicator.style.display=
-                'none';
-
-        },1000);
-}
-
-/* =========================
-   CALIBRATION CONTROLS
-========================= */
-
-function applyShift(dx,dy){
-
-    videoOffsetX+=dx;
-    videoOffsetY+=dy;
-
-    updateVideoStyle();
-    updateCalibrationStyle();
-
-    saveSettings();
-}
-
-function applyScale(ds){
-
-    videoScaleMultiplier=
-        Math.max(
-            .1,
-            Math.min(
-                5,
-                videoScaleMultiplier+ds
-            )
-        );
-
-    updateVideoStyle();
-    updateCalibrationStyle();
-
-    saveSettings();
-}
-
-document.getElementById('playerSaveBtn')
-.addEventListener(
-    'click',
-    saveSettings
-);
-
-document.getElementById('calibShiftUp')
-.addEventListener(
-    'click',
-    ()=>applyShift(0,-4)
-);
-
-document.getElementById('calibShiftDown')
-.addEventListener(
-    'click',
-    ()=>applyShift(0,4)
-);
-
-document.getElementById('calibShiftLeft')
-.addEventListener(
-    'click',
-    ()=>applyShift(-4,0)
-);
-
-document.getElementById('calibShiftRight')
-.addEventListener(
-    'click',
-    ()=>applyShift(4,0)
-);
-
-document.getElementById('calibScalePlus')
-.addEventListener(
-    'click',
-    ()=>applyScale(.02)
-);
-
-document.getElementById('calibScaleMinus')
-.addEventListener(
-    'click',
-    ()=>applyScale(-.02)
-);
-
-document.getElementById('calibReset')
-.addEventListener('click',()=>{
-
-    videoOffsetX=0;
-    videoOffsetY=0;
-    videoScaleMultiplier=1;
-
-    updateVideoStyle();
-    updateCalibrationStyle();
-
-    saveSettings();
-});
-
-document.getElementById('shiftUpBtn')
-.addEventListener(
-    'click',
-    ()=>applyShift(0,-4)
-);
-
-document.getElementById('shiftDownBtn')
-.addEventListener(
-    'click',
-    ()=>applyShift(0,4)
-);
-
-document.getElementById('shiftLeftBtn')
-.addEventListener(
-    'click',
-    ()=>applyShift(-4,0)
-);
-
-document.getElementById('shiftRightBtn')
-.addEventListener(
-    'click',
-    ()=>applyShift(4,0)
-);
-
-document.getElementById('scalePlusBtn')
-.addEventListener(
-    'click',
-    ()=>applyScale(.02)
-);
-
-document.getElementById('scaleMinusBtn')
-.addEventListener(
-    'click',
-    ()=>applyScale(-.02)
-);
-
-document.getElementById('resetShiftBtn')
-.addEventListener('click',()=>{
-
-    videoOffsetX=0;
-    videoOffsetY=0;
-    videoScaleMultiplier=1;
-
-    updateVideoStyle();
-
-    updateCalibrationStyle();
-
-    saveSettings();
-});
-
-/* =========================
-   PLAY EVENT
-========================= */
-
-videoPlayer.addEventListener('play',()=>{
-
-    startAntiSleepAudio();
-
-    requestWakeLock();
-});
-
-/* =========================
-   INITIAL
-========================= */
-
-updateVideoStyle();
-
-</script>
-</body>
-  </html>
+        },
