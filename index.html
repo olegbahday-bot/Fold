@@ -232,18 +232,27 @@ let remoteVideoDuration=0;
 let remoteVideoTime=0;
 let remoteVideoPaused=true;
 
+/*
+  НОВА СИСТЕМА СИНХРОНІЗАЦІЇ P2P
+
+  hostSyncTime:
+  останній час відео на S25+
+
+  hostSyncReceivedAt:
+  момент отримання останнього sync-пакета на S10
+
+  remoteSyncGeneration:
+  захист від старих пакетів після restart / seek
+*/
+let hostSyncTime=0;
+let hostSyncReceivedAt=0;
+let hostSyncPaused=true;
+let remoteSyncGeneration=0;
+let lastRemoteSeekTime=-1;
+let remoteSyncCorrectionTimer=null;
+
 let videoChangeInProgress=false;
 let videoVersion=0;
-
-/*
-=========================================================
-НОВІ ЗМІННІ ДЛЯ НАДІЙНОЇ СИНХРОНІЗАЦІЇ P2P
-=========================================================
-*/
-
-let lastRemoteStateTime=0;
-let lastRemoteStateReceived=0;
-let restartSequence=0;
 
 const peerOptions={
     debug:1,
@@ -319,10 +328,8 @@ function startAntiSleepAudio(){
     try{
 
         if(!audioCtx){
-
             audioCtx=
-                new(window.AudioContext||
-                    window.webkitAudioContext)();
+                new(window.AudioContext||window.webkitAudioContext)();
         }
 
         if(audioCtx.state==='suspended')
@@ -473,15 +480,8 @@ function updateInputsVisibility(){
     }
 }
 
-roleSelect.addEventListener(
-    'change',
-    updateInputsVisibility
-);
-
-videoModeSelect.addEventListener(
-    'change',
-    updateInputsVisibility
-);
+roleSelect.addEventListener('change',updateInputsVisibility);
+videoModeSelect.addEventListener('change',updateInputsVisibility);
 
 updateInputsVisibility();
 
@@ -531,34 +531,27 @@ function updateCalibrationStyle(){
         ?partnerWidth
         :myWidth;
 
-    const combinedWidth=
-        myWidth+pWidth;
+    const combinedWidth=myWidth+pWidth;
 
     const finalWidth=
-        combinedWidth*
-        videoScaleMultiplier;
+        combinedWidth*videoScaleMultiplier;
 
     const videoAspect=
-        videoPlayer.videoWidth&&
-        videoPlayer.videoHeight
-        ?videoPlayer.videoWidth/
-         videoPlayer.videoHeight
+        videoPlayer.videoWidth&&videoPlayer.videoHeight
+        ?videoPlayer.videoWidth/videoPlayer.videoHeight
         :16/9;
 
     const finalHeight=
-        finalWidth/
-        videoAspect;
+        finalWidth/videoAspect;
 
     const leftPos=
         positionSelect.value==='left'
         ?videoOffsetX
         :videoOffsetX-pWidth;
 
-    calibBox.style.width=
-        finalWidth+'px';
+    calibBox.style.width=finalWidth+'px';
 
-    calibBox.style.height=
-        finalHeight+'px';
+    calibBox.style.height=finalHeight+'px';
 
     calibBox.style.transform=
         `translate3d(${leftPos}px,${videoOffsetY}px,0)`;
@@ -597,8 +590,6 @@ videoInput.addEventListener('change',e=>{
 
     videoPlayer.load();
 
-    videoPlayer.currentTime=0;
-
     playPauseBtn.textContent='▶ Грати';
 
     connectionStatus.textContent=
@@ -606,21 +597,17 @@ videoInput.addEventListener('change',e=>{
 
     if(isHost&&conn&&conn.open){
 
-        videoPlayer.addEventListener(
-            'loadedmetadata',
-            ()=>{
+        videoPlayer.addEventListener('loadedmetadata',()=>{
 
-                updateVideoStyle();
+            updateVideoStyle();
 
-                if(videoModeSelect.value==='stream')
-                    startStreaming();
+            if(videoModeSelect.value==='stream')
+                startStreaming();
 
-                sendStreamState();
-                sendSyncState();
+            sendStreamState();
+            sendSyncState();
 
-            },
-            {once:true}
-        );
+        },{once:true});
     }
 });
 
@@ -634,7 +621,6 @@ changeVideoBtn.addEventListener('click',()=>{
         return;
 
     newVideoInput.value='';
-
     newVideoInput.click();
 });
 
@@ -664,8 +650,11 @@ function clearRemoteVideo(){
     remoteVideoTime=0;
     remoteVideoPaused=true;
 
-    lastRemoteStateTime=0;
-    lastRemoteStateReceived=0;
+    hostSyncTime=0;
+    hostSyncReceivedAt=0;
+    hostSyncPaused=true;
+
+    remoteSyncGeneration++;
 
     timelineRange.value=0;
 
@@ -713,7 +702,8 @@ newVideoInput.addEventListener('change',async e=>{
 
         videoPlayer.currentTime=0;
 
-        playPauseBtn.textContent='▶ Грати';
+        playPauseBtn.textContent=
+            '▶ Грати';
 
         updateVideoStyle();
 
@@ -800,13 +790,17 @@ newVideoInput.addEventListener('change',async e=>{
             resolve();
         };
 
-        if(videoPlayer.readyState>=1)
+        if(videoPlayer.readyState>=1){
+
             done();
-        else
+
+        }else{
+
             videoPlayer.addEventListener(
                 'loadedmetadata',
                 done
             );
+        }
 
         setTimeout(done,3000);
     });
@@ -867,7 +861,6 @@ newVideoInput.addEventListener('change',async e=>{
     sendStreamState();
 
     startAntiSleepAudio();
-
     requestWakeLock();
 
     videoChangeInProgress=false;
@@ -902,8 +895,7 @@ function startHostPeer(){
 
     const code=
         Math.floor(
-            10000+
-            Math.random()*90000
+            10000+Math.random()*90000
         ).toString();
 
     connectionStatus.textContent=
@@ -952,8 +944,7 @@ function startHostPeer(){
             err
         );
 
-        if(err&&
-           err.type==='unavailable-id'){
+        if(err&&err.type==='unavailable-id'){
 
             connectionStatus.textContent=
                 'Статус: Код зайнятий, створіть кімнату ще раз.';
@@ -979,7 +970,9 @@ connectClientBtn.addEventListener('click',()=>{
 
     if(code.length!==5){
 
-        alert('Введіть 5-значний код!');
+        alert(
+            'Введіть 5-значний код!'
+        );
 
         return;
     }
@@ -1043,25 +1036,23 @@ connectClientBtn.addEventListener('click',()=>{
                 remoteStream;
 
             videoPlayer.muted=false;
-
             videoPlayer.volume=1;
-
-            remoteVideoTime=0;
-
-            /*
-              Не ставимо timeline тут.
-              Після появи потоку ним керує
-              фактичний currentTime відео.
-            */
 
             videoPlayer.play().catch(()=>{});
 
             startAntiSleepAudio();
-
             requestWakeLock();
 
             connectionStatus.textContent=
                 'Статус: Відео отримано з головного телефону.';
+
+            /*
+              Після отримання нового потоку
+              чекаємо на stream_state.
+            */
+            hostSyncTime=0;
+            hostSyncReceivedAt=0;
+            hostSyncPaused=true;
         });
 
         call.on('close',()=>{
@@ -1184,7 +1175,8 @@ function startStreaming(){
         if(!newCall)
             return;
 
-        activeCall=newCall;
+        activeCall=
+            newCall;
 
         newCall.on('close',()=>{
 
@@ -1240,7 +1232,18 @@ function sendStreamState(){
             :0,
 
         paused:
-            videoPlayer.paused
+            videoPlayer.paused,
+
+        /*
+          Час відправки пакета.
+          S10 використовує його для прогнозу
+          поточної позиції між пакетами.
+        */
+        sentAt:
+            Date.now(),
+
+        generation:
+            remoteSyncGeneration
     });
 }
 
@@ -1275,7 +1278,11 @@ function broadcastSeek(time){
 
         time:time,
 
-        paused:videoPlayer.paused
+        paused:
+            videoPlayer.paused,
+
+        generation:
+            remoteSyncGeneration
     });
 }
 
@@ -1295,7 +1302,6 @@ function hostPlay(){
     startAntiSleepAudio();
 
     sendSyncState();
-
     sendStreamState();
 }
 
@@ -1303,37 +1309,18 @@ function hostPause(){
 
     videoPlayer.pause();
 
+    videoPlayer.playbackRate=1;
+
     playPauseBtn.textContent=
         '▶ Грати';
 
     sendSyncState();
-
     sendStreamState();
 }
 
-/*
-=========================================================
-НАДІЙНИЙ RESTART ДЛЯ P2P MEDIASTREAM
-=========================================================
-
-На S10 MediaStream іноді ігнорує currentTime=0,
-якщо зробити це один раз.
-
-Тому Host:
-1. встановлює 0;
-2. надсилає restart;
-3. надсилає seek;
-4. повторює команду через 120 та 400 мс.
-
-Це не впливає на інтерфейс.
-*/
-
 function hostRestart(){
 
-    restartSequence++;
-
-    const sequence=
-        restartSequence;
+    remoteSyncGeneration++;
 
     try{
         videoPlayer.pause();
@@ -1345,25 +1332,25 @@ function hostRestart(){
 
     videoPlayer.playbackRate=1;
 
-    playPauseBtn.textContent=
-        '❚❚ Пауза';
-
     /*
-      Спеціальна команда restart.
+      Окреме повідомлення restart.
+      Воно має пріоритет над звичайною
+      синхронізацією часу.
     */
     sendMessage({
 
         type:'restart',
 
-        sequence:sequence,
-
         time:0,
 
-        paused:false
+        paused:false,
+
+        generation:
+            remoteSyncGeneration
     });
 
     /*
-      Додаткова команда seek.
+      Додатковий seek одразу після restart.
     */
     sendMessage({
 
@@ -1371,29 +1358,24 @@ function hostRestart(){
 
         time:0,
 
-        paused:false
+        paused:false,
+
+        generation:
+            remoteSyncGeneration
     });
 
-    /*
-      Стан потоку після встановлення 0.
-    */
-    sendStreamState();
-
-    sendSyncState();
-
-    /*
-      Запускаємо головний телефон.
-    */
     videoPlayer.play().catch(()=>{});
 
-    startAntiSleepAudio();
+    playPauseBtn.textContent=
+        '❚❚ Пауза';
 
     /*
-      Повторна синхронізація.
+      Повторна передача через короткий
+      інтервал. Це важливо для MediaStream.
     */
     setTimeout(()=>{
 
-        if(sequence!==restartSequence)
+        if(!isHost)
             return;
 
         try{
@@ -1402,63 +1384,209 @@ function hostRestart(){
 
         sendMessage({
 
-            type:'restart',
-
-            sequence:sequence,
-
-            time:0,
-
-            paused:false
-        });
-
-        sendMessage({
-
             type:'seek',
 
             time:0,
 
-            paused:false
+            paused:false,
+
+            generation:
+                remoteSyncGeneration
         });
 
         sendStreamState();
+        sendSyncState();
 
-    },120);
+    },180);
 
     setTimeout(()=>{
 
-        if(sequence!==restartSequence)
+        if(!isHost)
             return;
-
-        /*
-          На S25+ після 400 мс відео вже гарантовано
-          повинно бути в потрібному стані.
-          Тому ще раз передаємо точну команду.
-        */
-
-        sendMessage({
-
-            type:'restart',
-
-            sequence:sequence,
-
-            time:0,
-
-            paused:false
-        });
-
-        sendMessage({
-
-            type:'seek',
-
-            time:0,
-
-            paused:false
-        });
 
         sendStreamState();
 
-    },400);
+    },500);
+
+    startAntiSleepAudio();
 }
+
+/* =========================
+REMOTE STREAM SYNC ENGINE
+========================= */
+
+function getPredictedHostTime(){
+
+    if(hostSyncPaused)
+        return hostSyncTime;
+
+    if(!hostSyncReceivedAt)
+        return hostSyncTime;
+
+    const elapsed=
+        (performance.now()-
+         hostSyncReceivedAt)/1000;
+
+    return hostSyncTime+elapsed;
+}
+
+function updateRemoteTimeline(){
+
+    if(isHost)
+        return;
+
+    if(!videoPlayer.srcObject)
+        return;
+
+    if(remoteVideoDuration<=0)
+        return;
+
+    if(isDraggingTimeline)
+        return;
+
+    let displayTime=
+        getPredictedHostTime();
+
+    if(!Number.isFinite(displayTime))
+        displayTime=remoteVideoTime;
+
+    displayTime=
+        Math.max(
+            0,
+            Math.min(
+                remoteVideoDuration,
+                displayTime
+            )
+        );
+
+    remoteVideoTime=
+        displayTime;
+
+    const progress=
+        displayTime/
+        remoteVideoDuration*
+        100;
+
+    timelineRange.value=
+        Math.max(
+            0,
+            Math.min(100,progress)
+        );
+
+    timeDisplay.textContent=
+        `${formatTime(displayTime)} / ${formatTime(remoteVideoDuration)}`;
+}
+
+function correctRemoteStream(){
+
+    if(isHost)
+        return;
+
+    if(!videoPlayer.srcObject)
+        return;
+
+    if(hostSyncPaused){
+
+        if(!videoPlayer.paused)
+            videoPlayer.pause();
+
+        videoPlayer.playbackRate=1;
+
+        return;
+    }
+
+    if(videoPlayer.paused){
+
+        videoPlayer.play().catch(()=>{});
+
+        return;
+    }
+
+    const target=
+        getPredictedHostTime();
+
+    const actual=
+        Number(videoPlayer.currentTime);
+
+    if(!Number.isFinite(target)||
+       !Number.isFinite(actual))
+        return;
+
+    const error=
+        target-actual;
+
+    /*
+      Маленька різниця:
+      нічого не робимо.
+      Саме це прибирає постійне
+      "доганяння" в динамічних сценах.
+    */
+    if(Math.abs(error)<0.06){
+
+        videoPlayer.playbackRate=1;
+
+        return;
+    }
+
+    /*
+      Середня різниця:
+      плавно змінюємо швидкість.
+    */
+    if(Math.abs(error)<0.8){
+
+        let correction=
+            1+(error*0.18);
+
+        correction=
+            Math.max(
+                0.92,
+                Math.min(
+                    1.08,
+                    correction
+                )
+            );
+
+        videoPlayer.playbackRate=
+            correction;
+
+        return;
+    }
+
+    /*
+      Велика різниця:
+      одноразово перемотуємо.
+      Не робимо цього при кожному пакеті.
+    */
+    if(Math.abs(error)>=0.8){
+
+        try{
+
+            videoPlayer.currentTime=
+                Math.max(
+                    0,
+                    target
+                );
+
+        }catch(e){}
+
+        videoPlayer.playbackRate=1;
+    }
+}
+
+if(remoteSyncCorrectionTimer)
+    clearInterval(remoteSyncCorrectionTimer);
+
+remoteSyncCorrectionTimer=
+    setInterval(()=>{
+
+        if(!isHost&&
+           videoPlayer.srcObject){
+
+            correctRemoteStream();
+            updateRemoteTimeline();
+        }
+
+    },120);
 
 /* =========================
 CONNECTION
@@ -1488,7 +1616,6 @@ function setupConnection(){
             if(isHost){
 
                 videoPlayer.muted=false;
-
                 videoPlayer.volume=1;
 
                 playPauseBtn.textContent=
@@ -1503,7 +1630,6 @@ function setupConnection(){
                     }
 
                     sendStreamState();
-
                     sendSyncState();
 
                 },700);
@@ -1512,24 +1638,26 @@ function setupConnection(){
                     clearInterval(syncInterval);
 
                 /*
-                  Часте надсилання залишаємо для PLAY/PAUSE
-                  та контролю стану, але клієнт більше НЕ буде
-                  використовувати ці повідомлення як головне
-                  джерело позиції timeline.
+                  Частіша передача стану.
+                  Таймлайн S10 тепер орієнтується
+                  саме на цей потік даних.
                 */
-
                 syncInterval=
                     setInterval(()=>{
 
                         if(conn&&conn.open){
 
-                            if(videoModeSelect.value==='stream')
+                            if(videoModeSelect.value==='stream'){
+
                                 sendStreamState();
-                            else
+
+                            }else{
+
                                 sendSyncState();
+                            }
                         }
 
-                    },300);
+                    },100);
 
             }else{
 
@@ -1546,10 +1674,7 @@ function setupConnection(){
 
     }else{
 
-        conn.on(
-            'open',
-            handleReady
-        );
+        conn.on('open',handleReady);
     }
 
     conn.on('data',data=>{
@@ -1592,7 +1717,9 @@ function setupConnection(){
 
                 remoteVideoPaused=true;
 
-                lastRemoteStateTime=0;
+                hostSyncTime=0;
+                hostSyncReceivedAt=0;
+                hostSyncPaused=true;
 
                 timelineRange.value=0;
 
@@ -1609,96 +1736,119 @@ function setupConnection(){
 
             else if(msg.type==='stream_state'&&!isHost){
 
+                const generation=
+                    Number.isFinite(Number(msg.generation))
+                    ?Number(msg.generation)
+                    :remoteSyncGeneration;
+
+                /*
+                  Старі пакети після restart
+                  більше не повинні повертати
+                  таймлайн назад.
+                */
+                if(generation<remoteSyncGeneration)
+                    return;
+
+                remoteSyncGeneration=
+                    generation;
+
                 const newTime=
                     Number(msg.time);
 
-                const newDuration=
-                    Number(msg.duration);
+                if(!Number.isFinite(newTime))
+                    return;
 
                 remoteVideoDuration=
-                    Number.isFinite(newDuration)
-                    ?newDuration
-                    :remoteVideoDuration;
+                    Number(msg.duration)||0;
 
                 remoteVideoPaused=
                     !!msg.paused;
 
                 /*
-                  ВАЖЛИВА ЗМІНА:
-
-                  stream_state більше НЕ керує timeline
-                  кожні 300 мс.
-
-                  Timeline тепер керується фактичним
-                  videoPlayer.currentTime через timeupdate.
-
-                  Це прибирає стрибки:
-                  00:25 -> 00:00 -> 00:25 -> 00:00.
+                  Головне:
+                  цей час стає еталоном для S10.
                 */
+                hostSyncTime=
+                    Math.max(
+                        0,
+                        newTime
+                    );
 
-                if(Number.isFinite(newTime)){
+                hostSyncReceivedAt=
+                    performance.now();
 
-                    remoteVideoTime=
-                        newTime;
-
-                    lastRemoteStateTime=
-                        newTime;
-
-                    lastRemoteStateReceived=
-                        Date.now();
-
-                    /*
-                      Корекція робиться лише якщо S10
-                      реально відстає/випереджає більш ніж
-                      на 1.2 секунди.
-
-                      Значення 0 спеціально не примушуємо,
-                      якщо відео вже грає далі.
-                    */
-
-                    if(videoPlayer.srcObject){
-
-                        const current=
-                            videoPlayer.currentTime;
-
-                        const difference=
-                            newTime-current;
-
-                        if(newTime>0.5&&
-                           Number.isFinite(current)&&
-                           Math.abs(difference)>1.2){
-
-                            try{
-                                videoPlayer.currentTime=
-                                    newTime;
-                            }catch(e){}
-                        }
-                    }
-                }
+                hostSyncPaused=
+                    remoteVideoPaused;
 
                 /*
-                  Важливо: play/pause все ще приходить
-                  через stream_state.
+                  Таймлайн одразу отримує
+                  позицію S25+.
                 */
+                if(remoteVideoDuration>0&&
+                   !isDraggingTimeline){
 
-                if(remoteVideoPaused){
+                    remoteVideoTime=
+                        hostSyncTime;
 
-                    videoPlayer.pause();
+                    const percent=
+                        remoteVideoTime/
+                        remoteVideoDuration*
+                        100;
 
-                    playPauseBtn.textContent=
-                        '▶ Грати';
+                    timelineRange.value=
+                        Math.max(
+                            0,
+                            Math.min(
+                                100,
+                                percent
+                            )
+                        );
 
-                }else{
+                    timeDisplay.textContent=
+                        `${formatTime(remoteVideoTime)} / ${formatTime(remoteVideoDuration)}`;
+                }
 
-                    if(videoPlayer.paused)
-                        videoPlayer.play().catch(()=>{});
+                if(videoPlayer.srcObject){
 
-                    playPauseBtn.textContent=
-                        '❚❚ Пауза';
+                    if(remoteVideoPaused){
 
-                    startAntiSleepAudio();
+                        videoPlayer.pause();
 
-                    requestWakeLock();
+                        videoPlayer.playbackRate=1;
+
+                        playPauseBtn.textContent=
+                            '▶ Грати';
+
+                    }else{
+
+                        if(videoPlayer.paused){
+
+                            /*
+                              Перед play один раз
+                              намагаємось потрапити
+                              ближче до позиції Host.
+                            */
+                            const actual=
+                                Number(videoPlayer.currentTime);
+
+                            if(Number.isFinite(actual)&&
+                               Math.abs(actual-hostSyncTime)>0.5){
+
+                                try{
+                                    videoPlayer.currentTime=
+                                        hostSyncTime;
+                                }catch(e){}
+                            }
+
+                            videoPlayer.play().catch(()=>{});
+                        }
+
+                        playPauseBtn.textContent=
+                            '❚❚ Пауза';
+
+                        startAntiSleepAudio();
+                        requestWakeLock();
+                    }
                 }
             }
 
@@ -1734,7 +1884,10 @@ function setupConnection(){
                     try{
 
                         videoPlayer.currentTime=
-                            Math.max(0,hostTime);
+                            Math.max(
+                                0,
+                                hostTime
+                            );
 
                     }catch(e){}
 
@@ -1748,7 +1901,10 @@ function setupConnection(){
                     rate=
                         Math.max(
                             .97,
-                            Math.min(1.03,rate)
+                            Math.min(
+                                1.03,
+                                rate
+                            )
                         );
 
                     videoPlayer.playbackRate=
@@ -1774,117 +1930,93 @@ function setupConnection(){
                         '❚❚ Пауза';
 
                     startAntiSleepAudio();
-
                     requestWakeLock();
                 }
             }
 
             /* =========================
-               НОВИЙ RESTART CLIENT
+               RESTART
                ========================= */
 
             else if(msg.type==='restart'&&!isHost){
 
-                if(isDraggingTimeline)
+                const generation=
+                    Number(msg.generation);
+
+                if(Number.isFinite(generation)&&
+                   generation<remoteSyncGeneration){
+
                     return;
+                }
 
-                const sequence=
-                    Number(msg.sequence)||0;
+                if(Number.isFinite(generation))
+                    remoteSyncGeneration=
+                        generation;
 
-                const newTime=0;
+                hostSyncTime=0;
+
+                hostSyncReceivedAt=
+                    performance.now();
+
+                hostSyncPaused=false;
 
                 remoteVideoTime=0;
 
-                lastRemoteStateTime=0;
-
-                /*
-                  Перша спроба.
-                */
-                try{
-
-                    videoPlayer.currentTime=
-                        newTime;
-
-                }catch(e){}
-
-                timelineRange.value=0;
-
                 if(remoteVideoDuration>0){
+
+                    timelineRange.value=0;
 
                     timeDisplay.textContent=
                         `00:00 / ${formatTime(remoteVideoDuration)}`;
-
-                }else{
-
-                    timeDisplay.textContent=
-                        '00:00 / 00:00';
                 }
 
                 /*
-                  Запускаємо відео.
+                  Примусове повернення
+                  P2P video element на 0.
                 */
+                try{
+
+                    videoPlayer.currentTime=0;
+
+                }catch(e){}
+
+                videoPlayer.playbackRate=1;
+
                 videoPlayer.play().catch(()=>{});
 
                 playPauseBtn.textContent=
                     '❚❚ Пауза';
 
-                startAntiSleepAudio();
-
-                requestWakeLock();
-
                 /*
-                  Для Samsung/Chrome повторюємо
-                  перемотування після оновлення MediaStream.
+                  MediaStream може прийняти seek
+                  не миттєво, тому повторюємо.
                 */
                 setTimeout(()=>{
 
-                    if(sequence!==restartSequence&&
-                       sequence!==0){
-
-                        /*
-                          sequence на клієнті не обов'язково
-                          має збігатися з локальним.
-                          Тому тут не блокуємо команду.
-                        */
-                    }
+                    if(!videoPlayer.srcObject)
+                        return;
 
                     try{
-
                         videoPlayer.currentTime=0;
-
                     }catch(e){}
 
-                    timelineRange.value=0;
-
-                    if(remoteVideoDuration>0){
-
-                        timeDisplay.textContent=
-                            `00:00 / ${formatTime(remoteVideoDuration)}`;
-                    }
+                    videoPlayer.playbackRate=1;
 
                     videoPlayer.play().catch(()=>{});
 
-                },100);
+                },180);
 
                 setTimeout(()=>{
 
-                    try{
+                    if(!videoPlayer.srcObject)
+                        return;
 
-                        videoPlayer.currentTime=0;
+                    hostSyncTime=0;
 
-                    }catch(e){}
+                    hostSyncReceivedAt=
+                        performance.now();
 
-                    timelineRange.value=0;
-
-                    if(remoteVideoDuration>0){
-
-                        timeDisplay.textContent=
-                            `00:00 / ${formatTime(remoteVideoDuration)}`;
-                    }
-
-                    videoPlayer.play().catch(()=>{});
-
-                },350);
+                },500);
             }
 
             /* =========================
@@ -1896,51 +2028,67 @@ function setupConnection(){
                 if(isDraggingTimeline)
                     return;
 
-                if(!isHost){
+                if(isHost)
+                    return;
 
-                    const newTime=
+                const generation=
+                    Number(msg.generation);
+
+                if(Number.isFinite(generation)&&
+                   generation<remoteSyncGeneration){
+
+                    return;
+                }
+
+                if(Number.isFinite(generation))
+                    remoteSyncGeneration=
+                        generation;
+
+                const newTime=
+                    Math.max(
+                        0,
+                        Number(msg.time)||0
+                    );
+
+                remoteVideoTime=
+                    newTime;
+
+                hostSyncTime=
+                    newTime;
+
+                hostSyncReceivedAt=
+                    performance.now();
+
+                hostSyncPaused=
+                    !!msg.paused;
+
+                if(remoteVideoDuration>0){
+
+                    timelineRange.value=
                         Math.max(
                             0,
-                            Number(msg.time)||0
+                            Math.min(
+                                100,
+                                newTime/
+                                remoteVideoDuration*
+                                100
+                            )
                         );
 
-                    remoteVideoTime=
-                        newTime;
+                    timeDisplay.textContent=
+                        `${formatTime(newTime)} / ${formatTime(remoteVideoDuration)}`;
+                }
 
-                    lastRemoteStateTime=
-                        newTime;
+                if(videoPlayer.srcObject){
 
-                    /*
-                      Для звичайного seek теж робимо
-                      повторну установку currentTime.
-                    */
+                    try{
 
-                    if(videoPlayer.srcObject){
+                        videoPlayer.currentTime=
+                            newTime;
 
-                        try{
+                    }catch(e){}
 
-                            videoPlayer.currentTime=
-                                newTime;
-
-                        }catch(e){}
-                    }
-
-                    if(remoteVideoDuration>0){
-
-                        timelineRange.value=
-                            Math.max(
-                                0,
-                                Math.min(
-                                    100,
-                                    newTime/
-                                    remoteVideoDuration*
-                                    100
-                                )
-                            );
-
-                        timeDisplay.textContent=
-                            `${formatTime(newTime)} / ${formatTime(remoteVideoDuration)}`;
-                    }
+                    videoPlayer.playbackRate=1;
 
                     if(msg.paused){
 
@@ -1956,18 +2104,6 @@ function setupConnection(){
                         playPauseBtn.textContent=
                             '❚❚ Пауза';
                     }
-
-                }else if(!videoPlayer.srcObject){
-
-                    try{
-
-                        videoPlayer.currentTime=
-                            Math.max(
-                                0,
-                                Number(msg.time)||0
-                            );
-
-                    }catch(e){}
                 }
             }
 
@@ -1987,6 +2123,8 @@ function setupConnection(){
                    Number.isFinite(duration)&&
                    duration>0){
 
+                    remoteSyncGeneration++;
+
                     videoPlayer.currentTime=
                         Math.max(
                             0,
@@ -2003,7 +2141,6 @@ function setupConnection(){
                     );
 
                     sendStreamState();
-
                     sendSyncState();
                 }
             }
@@ -2041,7 +2178,9 @@ function setupConnection(){
             syncInterval=null;
         }
 
-        alert("З'єднання закрито");
+        alert(
+            "З'єднання закрито"
+        );
 
         location.reload();
     });
@@ -2091,7 +2230,6 @@ videoPlayer.addEventListener('loadedmetadata',()=>{
         if(conn&&conn.open){
 
             sendStreamState();
-
             sendSyncState();
         }
     }
@@ -2310,7 +2448,10 @@ videoPlayer.addEventListener('timeupdate',()=>{
             timelineRange.value=
                 Math.max(
                     0,
-                    Math.min(100,progress)
+                    Math.min(
+                        100,
+                        progress
+                    )
                 );
 
             timeDisplay.textContent=
@@ -2319,47 +2460,14 @@ videoPlayer.addEventListener('timeupdate',()=>{
     }
 
     /*
-      ГОЛОВНА ЗМІНА ДЛЯ S10:
+      ВАЖЛИВО:
+      тут БІЛЬШЕ НЕ МОЖНА брати
+      videoPlayer.currentTime для таймлайна
+      P2P-клієнта.
 
-      Позиція timeline береться ТІЛЬКИ з реального
-      currentTime P2P-відео.
-
-      stream_state більше не перезаписує її кожні 300 мс.
+      Інакше MediaStream знову буде
+      перетягувати таймлайн назад.
     */
-
-    if(!isHost&&
-       videoPlayer.srcObject&&
-       remoteVideoDuration>0){
-
-        if(!isDraggingTimeline){
-
-            const actualTime=
-                videoPlayer.currentTime;
-
-            if(Number.isFinite(actualTime)){
-
-                remoteVideoTime=
-                    actualTime;
-
-                const progress=
-                    actualTime/
-                    remoteVideoDuration*
-                    100;
-
-                timelineRange.value=
-                    Math.max(
-                        0,
-                        Math.min(
-                            100,
-                            progress
-                        )
-                    );
-
-                timeDisplay.textContent=
-                    `${formatTime(actualTime)} / ${formatTime(remoteVideoDuration)}`;
-            }
-        }
-    }
 
     if(!isHost&&
        !videoPlayer.srcObject&&
@@ -2377,7 +2485,10 @@ videoPlayer.addEventListener('timeupdate',()=>{
             timelineRange.value=
                 Math.max(
                     0,
-                    Math.min(100,progress)
+                    Math.min(
+                        100,
+                        progress
+                    )
                 );
 
             timeDisplay.textContent=
@@ -2469,9 +2580,10 @@ function finishTimelineDrag(){
 
     if(isHost){
 
+        remoteSyncGeneration++;
+
         try{
-            videoPlayer.currentTime=
-                newTime;
+            videoPlayer.currentTime=newTime;
         }catch(e){}
 
         videoPlayer.playbackRate=1;
@@ -2479,7 +2591,6 @@ function finishTimelineDrag(){
         broadcastSeek(newTime);
 
         sendStreamState();
-
         sendSyncState();
 
     }else{
@@ -2621,11 +2732,9 @@ CALIBRATION CONTROLS
 function applyShift(dx,dy){
 
     videoOffsetX+=dx;
-
     videoOffsetY+=dy;
 
     updateVideoStyle();
-
     updateCalibrationStyle();
 
     saveSettings();
@@ -2643,69 +2752,107 @@ function applyScale(ds){
         );
 
     updateVideoStyle();
-
     updateCalibrationStyle();
 
     saveSettings();
 }
 
-document.getElementById(
-    'playerSaveBtn'
-).addEventListener(
+document.getElementById('playerSaveBtn')
+.addEventListener(
     'click',
     saveSettings
 );
 
-document.getElementById(
-    'calibShiftUp'
-).addEventListener(
+document.getElementById('calibShiftUp')
+.addEventListener(
     'click',
     ()=>applyShift(0,-4)
 );
 
-document.getElementById(
-    'calibShiftDown'
-).addEventListener(
+document.getElementById('calibShiftDown')
+.addEventListener(
     'click',
     ()=>applyShift(0,4)
 );
 
-document.getElementById(
-    'calibShiftLeft'
-).addEventListener(
+document.getElementById('calibShiftLeft')
+.addEventListener(
     'click',
     ()=>applyShift(-4,0)
 );
 
-document.getElementById(
-    'calibShiftRight'
-).addEventListener(
+document.getElementById('calibShiftRight')
+.addEventListener(
     'click',
     ()=>applyShift(4,0)
 );
 
-document.getElementById(
-    'calibScalePlus'
-).addEventListener(
+document.getElementById('calibScalePlus')
+.addEventListener(
     'click',
     ()=>applyScale(.02)
 );
 
-document.getElementById(
-    'calibScaleMinus'
-).addEventListener(
+document.getElementById('calibScaleMinus')
+.addEventListener(
     'click',
     ()=>applyScale(-.02)
 );
 
-document.getElementById(
-    'calibReset'
-).addEventListener('click',()=>{
+document.getElementById('calibReset')
+.addEventListener('click',()=>{
 
     videoOffsetX=0;
-
     videoOffsetY=0;
+    videoScaleMultiplier=1;
 
+    updateVideoStyle();
+    updateCalibrationStyle();
+
+    saveSettings();
+});
+
+document.getElementById('shiftUpBtn')
+.addEventListener(
+    'click',
+    ()=>applyShift(0,-4)
+);
+
+document.getElementById('shiftDownBtn')
+.addEventListener(
+    'click',
+    ()=>applyShift(0,4)
+);
+
+document.getElementById('shiftLeftBtn')
+.addEventListener(
+    'click',
+    ()=>applyShift(-4,0)
+);
+
+document.getElementById('shiftRightBtn')
+.addEventListener(
+    'click',
+    ()=>applyShift(4,0)
+);
+
+document.getElementById('scalePlusBtn')
+.addEventListener(
+    'click',
+    ()=>applyScale(.02)
+);
+
+document.getElementById('scaleMinusBtn')
+.addEventListener(
+    'click',
+    ()=>applyScale(-.02)
+);
+
+document.getElementById('resetShiftBtn')
+.addEventListener('click',()=>{
+
+    videoOffsetX=0;
+    videoOffsetY=0;
     videoScaleMultiplier=1;
 
     updateVideoStyle();
@@ -2714,68 +2861,6 @@ document.getElementById(
 
     saveSettings();
 });
-
-document.getElementById(
-    'shiftUpBtn'
-).addEventListener(
-    'click',
-    ()=>applyShift(0,-4)
-);
-
-document.getElementById(
-    'shiftDownBtn'
-).addEventListener(
-    'click',
-    ()=>applyShift(0,4)
-);
-
-document.getElementById(
-    'shiftLeftBtn'
-).addEventListener(
-    'click',
-    ()=>applyShift(-4,0)
-);
-
-document.getElementById(
-    'shiftRightBtn'
-).addEventListener(
-    'click',
-    ()=>applyShift(4,0)
-);
-
-document.getElementById(
-    'scalePlusBtn'
-).addEventListener(
-    'click',
-    ()=>applyScale(.02)
-);
-
-document.getElementById(
-    'scaleMinusBtn'
-).addEventListener(
-    'click',
-    ()=>applyScale(-.02)
-);
-
-document.getElementById(
-    'resetShiftBtn'
-).addEventListener(
-    'click',
-    ()=>{
-
-        videoOffsetX=0;
-
-        videoOffsetY=0;
-
-        videoScaleMultiplier=1;
-
-        updateVideoStyle();
-
-        updateCalibrationStyle();
-
-        saveSettings();
-    }
-);
 
 /* =========================
 PLAY EVENT
