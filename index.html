@@ -70,6 +70,7 @@ video.vid-el{position:absolute;top:0;left:0;object-fit:fill;will-change:transfor
 <select id="videoModeSelect">
 <option value="stream">Трансляція відео з Головного на другий (P2P)</option>
 <option value="local">Локальні файли на обох телефонах</option>
+<option value="cache">Локальний кеш через Wi-Fi</option>
 </select>
 
 <div id="fileInputContainer">
@@ -232,18 +233,6 @@ let remoteVideoDuration=0;
 let remoteVideoTime=0;
 let remoteVideoPaused=true;
 
-/*
-  НОВА СИСТЕМА СИНХРОНІЗАЦІЇ P2P
-
-  hostSyncTime:
-  останній час відео на S25+
-
-  hostSyncReceivedAt:
-  момент отримання останнього sync-пакета на S10
-
-  remoteSyncGeneration:
-  захист від старих пакетів після restart / seek
-*/
 let hostSyncTime=0;
 let hostSyncReceivedAt=0;
 let hostSyncPaused=true;
@@ -253,6 +242,52 @@ let remoteSyncCorrectionTimer=null;
 
 let videoChangeInProgress=false;
 let videoVersion=0;
+
+/* =========================================================
+   НОВИЙ РЕЖИМ: ЛОКАЛЬНИЙ КЕШ
+   ========================================================= */
+
+const CACHE_MODE='cache';
+
+const CACHE_DB_NAME='ScreenPartyVideoCache';
+const CACHE_DB_VERSION=1;
+const CACHE_STORE='video';
+
+const CACHE_CHUNK_SIZE=64*1024;
+
+let cacheDB=null;
+
+let cacheTransferId=0;
+let cacheTransferActive=false;
+let cacheTransferCancelled=false;
+
+let cacheReceiveId='';
+let cacheReceiveName='';
+let cacheReceiveSize=0;
+let cacheReceiveType='video/mp4';
+let cacheReceiveReceived=0;
+let cacheReceiveChunks=[];
+let cacheReceiveChunkCount=0;
+let cacheReceiveStartedAt=0;
+
+let cacheHostSending=false;
+let cacheHostSendToken=0;
+
+let cacheRemoteReady=false;
+let cacheRemoteDuration=0;
+let cacheRemoteFileName='';
+
+let cacheSyncTime=0;
+let cacheSyncReceivedAt=0;
+let cacheSyncPaused=true;
+let cacheSyncGeneration=0;
+let cacheLastHardSync=0;
+
+let cacheLocalVideoUrl=null;
+
+/* =========================================================
+   PEER
+   ========================================================= */
 
 const peerOptions={
     debug:1,
@@ -265,7 +300,7 @@ const peerOptions={
 };
 
 /* =========================
-WAKE LOCK
+   WAKE LOCK
 ========================= */
 
 async function requestWakeLock(){
@@ -417,7 +452,7 @@ setInterval(()=>{
 },4000);
 
 /* =========================
-SETTINGS
+   SETTINGS
 ========================= */
 
 function loadSavedSettings(){
@@ -452,7 +487,7 @@ function saveSettings(){
 }
 
 /* =========================
-INPUT VISIBILITY
+   INPUT VISIBILITY
 ========================= */
 
 function updateInputsVisibility(){
@@ -473,8 +508,15 @@ function updateInputsVisibility(){
         hostSection.classList.add('hidden');
         clientSection.classList.remove('hidden');
 
+        /*
+          Для stream файл на S10 не потрібен.
+          Для local і cache S10 отримує/вибирає
+          локальний файл відповідно до режиму.
+        */
         fileInputContainer.style.display=
-            mode==='stream'?'none':'block';
+            mode==='stream'||mode==='cache'
+            ?'none'
+            :'block';
 
         changeVideoBtn.style.display='none';
     }
@@ -486,7 +528,7 @@ videoModeSelect.addEventListener('change',updateInputsVisibility);
 updateInputsVisibility();
 
 /* =========================
-FULLSCREEN
+   FULLSCREEN
 ========================= */
 
 function requestFullscreenNow(){
@@ -501,7 +543,7 @@ function requestFullscreenNow(){
 }
 
 /* =========================
-CALIBRATION
+   CALIBRATION
 ========================= */
 
 openCalibOverlayBtn.addEventListener('click',()=>{
@@ -557,9 +599,776 @@ function updateCalibrationStyle(){
         `translate3d(${leftPos}px,${videoOffsetY}px,0)`;
 }
 
-/* =========================
-VIDEO INPUT
-========================= */
+/* =========================================================
+   CACHE DATABASE
+   ========================================================= */
+
+function openCacheDB(){
+
+    if(cacheDB)
+        return Promise.resolve(cacheDB);
+
+    return new Promise((resolve,reject)=>{
+
+        try{
+
+            const request=
+                indexedDB.open(
+                    CACHE_DB_NAME,
+                    CACHE_DB_VERSION
+                );
+
+            request.onupgradeneeded=e=>{
+
+                const db=e.target.result;
+
+                if(!db.objectStoreNames.contains(CACHE_STORE)){
+
+                    db.createObjectStore(
+                        CACHE_STORE,
+                        {keyPath:'id'}
+                    );
+                }
+            };
+
+            request.onsuccess=e=>{
+
+                cacheDB=e.target.result;
+
+                resolve(cacheDB);
+            };
+
+            request.onerror=()=>{
+
+                reject(
+                    request.error||
+                    new Error('IndexedDB error')
+                );
+            };
+
+        }catch(e){
+
+            reject(e);
+        }
+    });
+}
+
+async function clearCacheDB(){
+
+    try{
+
+        const db=
+            await openCacheDB();
+
+        await new Promise((resolve,reject)=>{
+
+            const tx=
+                db.transaction(
+                    CACHE_STORE,
+                    'readwrite'
+                );
+
+            tx.objectStore(
+                CACHE_STORE
+            ).clear();
+
+            tx.oncomplete=()=>resolve();
+            tx.onerror=()=>reject(tx.error);
+            tx.onabort=()=>reject(tx.error);
+
+        });
+
+    }catch(e){
+
+        console.error(
+            'Cache clear error:',
+            e
+        );
+    }
+}
+
+async function saveCacheBlob(blob,meta){
+
+    try{
+
+        const db=
+            await openCacheDB();
+
+        await new Promise((resolve,reject)=>{
+
+            const tx=
+                db.transaction(
+                    CACHE_STORE,
+                    'readwrite'
+                );
+
+            tx.objectStore(
+                CACHE_STORE
+            ).put({
+
+                id:'current',
+
+                blob:blob,
+
+                name:meta.name||'video',
+
+                type:meta.type||blob.type||'video/mp4',
+
+                size:blob.size,
+
+                savedAt:Date.now()
+
+            });
+
+            tx.oncomplete=()=>resolve();
+            tx.onerror=()=>reject(tx.error);
+            tx.onabort=()=>reject(tx.error);
+
+        });
+
+        return true;
+
+    }catch(e){
+
+        console.error(
+            'Cache save error:',
+            e
+        );
+
+        return false;
+    }
+}
+
+async function loadCacheBlob(){
+
+    try{
+
+        const db=
+            await openCacheDB();
+
+        return await new Promise((resolve,reject)=>{
+
+            const tx=
+                db.transaction(
+                    CACHE_STORE,
+                    'readonly'
+                );
+
+            const request=
+                tx.objectStore(
+                    CACHE_STORE
+                ).get('current');
+
+            request.onsuccess=()=>{
+
+                resolve(
+                    request.result||null
+                );
+            };
+
+            request.onerror=()=>{
+
+                reject(
+                    request.error
+                );
+            };
+        });
+
+    }catch(e){
+
+        return null;
+    }
+}
+
+async function deleteCacheBlob(){
+
+    try{
+
+        const db=
+            await openCacheDB();
+
+        await new Promise((resolve,reject)=>{
+
+            const tx=
+                db.transaction(
+                    CACHE_STORE,
+                    'readwrite'
+                );
+
+            tx.objectStore(
+                CACHE_STORE
+            ).delete('current');
+
+            tx.oncomplete=()=>resolve();
+            tx.onerror=()=>reject(tx.error);
+
+        });
+
+    }catch(e){}
+}
+
+async function setCachedVideoBlob(blob,meta){
+
+    if(cacheLocalVideoUrl){
+
+        try{
+            URL.revokeObjectURL(cacheLocalVideoUrl);
+        }catch(e){}
+
+        cacheLocalVideoUrl=null;
+    }
+
+    cacheLocalVideoUrl=
+        URL.createObjectURL(blob);
+
+    localVideoBlobUrl=
+        cacheLocalVideoUrl;
+
+    videoPlayer.pause();
+
+    videoPlayer.srcObject=null;
+
+    videoPlayer.src=
+        cacheLocalVideoUrl;
+
+    videoPlayer.load();
+
+    videoPlayer.muted=false;
+    videoPlayer.volume=1;
+
+    await new Promise(resolve=>{
+
+        let done=false;
+
+        const finish=()=>{
+
+            if(done)
+                return;
+
+            done=true;
+
+            videoPlayer.removeEventListener(
+                'loadedmetadata',
+                finish
+            );
+
+            resolve();
+        };
+
+        videoPlayer.addEventListener(
+            'loadedmetadata',
+            finish
+        );
+
+        if(videoPlayer.readyState>=1)
+            finish();
+
+        setTimeout(
+            finish,
+            5000
+        );
+    });
+
+    updateVideoStyle();
+
+    timelineRange.value=0;
+
+    if(Number.isFinite(videoPlayer.duration)&&
+       videoPlayer.duration>0){
+
+        timeDisplay.textContent=
+            `00:00 / ${formatTime(videoPlayer.duration)}`;
+
+    }else{
+
+        timeDisplay.textContent=
+            '00:00 / 00:00';
+    }
+}
+
+/* =========================================================
+   CACHE TRANSFER - HOST
+   ========================================================= */
+
+async function startCacheTransfer(file){
+
+    if(!isHost)
+        return;
+
+    if(videoModeSelect.value!==CACHE_MODE)
+        return;
+
+    if(!conn||!conn.open){
+
+        connectionStatus.textContent=
+            'Статус: Другий телефон ще не підключений.';
+
+        return;
+    }
+
+    if(cacheHostSending)
+        return;
+
+    cacheHostSending=true;
+
+    const token=
+        ++cacheHostSendToken;
+
+    const transferId=
+        Date.now().toString(36)+
+        '-' +
+        Math.random().toString(36).slice(2,8);
+
+    cacheTransferId=transferId;
+
+    connectionStatus.textContent=
+        'Статус: Підготовка передачі через Wi-Fi...';
+
+    /*
+      Спочатку повідомляємо S10,
+      що старий кеш треба видалити.
+    */
+    sendMessage({
+
+        type:'cache_transfer_start',
+
+        id:transferId,
+
+        name:file.name,
+
+        size:file.size,
+
+        mime:file.type||'video/mp4',
+
+        chunkSize:CACHE_CHUNK_SIZE
+    });
+
+    /*
+      Даємо DataConnection короткий час
+      підготуватися.
+    */
+    await new Promise(resolve=>
+        setTimeout(resolve,250)
+    );
+
+    if(token!==cacheHostSendToken||
+       !cacheHostSending||
+       !conn||
+       !conn.open){
+
+        cacheHostSending=false;
+        return;
+    }
+
+    let offset=0;
+    let chunkNumber=0;
+
+    const started=
+        performance.now();
+
+    while(
+        offset<file.size&&
+        token===cacheHostSendToken&&
+        cacheHostSending&&
+        conn&&
+        conn.open
+    ){
+
+        const end=
+            Math.min(
+                file.size,
+                offset+CACHE_CHUNK_SIZE
+            );
+
+        const blob=
+            file.slice(
+                offset,
+                end
+            );
+
+        const buffer=
+            await blob.arrayBuffer();
+
+        if(token!==cacheHostSendToken||
+           !cacheHostSending||
+           !conn||
+           !conn.open){
+
+            break;
+        }
+
+        /*
+          Відправляємо об'єкт.
+          PeerJS передає ArrayBuffer
+          через DataChannel.
+        */
+        try{
+
+            conn.send({
+
+                type:'cache_chunk',
+
+                id:transferId,
+
+                n:chunkNumber,
+
+                data:buffer
+
+            });
+
+        }catch(e){
+
+            console.error(
+                'Cache chunk send error:',
+                e
+            );
+
+            break;
+        }
+
+        offset=end;
+        chunkNumber++;
+
+        const percent=
+            file.size>0
+            ?offset/file.size*100
+            :100;
+
+        const elapsed=
+            (performance.now()-started)/1000;
+
+        const speed=
+            elapsed>0
+            ?offset/elapsed/1024/1024
+            :0;
+
+        connectionStatus.textContent=
+            `Статус: Передача відео ${percent.toFixed(1)}% • ${speed.toFixed(1)} МБ/с`;
+
+        /*
+          Невелика пауза дає DataChannel
+          можливість спорожнювати буфер.
+        */
+        if(chunkNumber%8===0)
+            await new Promise(resolve=>
+                setTimeout(resolve,0)
+            );
+    }
+
+    if(
+        token===cacheHostSendToken&&
+        cacheHostSending&&
+        conn&&
+        conn.open&&
+        offset>=file.size
+    ){
+
+        sendMessage({
+
+            type:'cache_transfer_end',
+
+            id:transferId,
+
+            name:file.name,
+
+            size:file.size,
+
+            mime:file.type||'video/mp4',
+
+            chunks:chunkNumber
+        });
+
+        connectionStatus.textContent=
+            'Статус: Файл передано. Очікування підтвердження S10...';
+
+    }
+
+    cacheHostSending=false;
+}
+
+/* =========================================================
+   CACHE TRANSFER - CLIENT
+   ========================================================= */
+
+async function cacheReceiveStart(msg){
+
+    cacheReceiveId=
+        String(msg.id||'');
+
+    cacheReceiveName=
+        msg.name||'video';
+
+    cacheReceiveSize=
+        Number(msg.size)||0;
+
+    cacheReceiveType=
+        msg.mime||'video/mp4';
+
+    cacheReceiveReceived=0;
+
+    cacheReceiveChunks=[];
+
+    cacheReceiveChunkCount=
+        Number(msg.chunks)||0;
+
+    cacheReceiveStartedAt=
+        performance.now();
+
+    cacheTransferActive=true;
+
+    /*
+      Видаляємо попередній кеш.
+    */
+    await deleteCacheBlob();
+
+    if(cacheLocalVideoUrl){
+
+        try{
+            URL.revokeObjectURL(cacheLocalVideoUrl);
+        }catch(e){}
+
+        cacheLocalVideoUrl=null;
+    }
+
+    /*
+      Старе відео прибираємо з player.
+    */
+    try{
+        videoPlayer.pause();
+    }catch(e){}
+
+    try{
+        videoPlayer.removeAttribute('src');
+        videoPlayer.srcObject=null;
+        videoPlayer.load();
+    }catch(e){}
+
+    remoteVideoDuration=0;
+    remoteVideoTime=0;
+
+    timelineRange.value=0;
+
+    timeDisplay.textContent=
+        '00:00 / 00:00';
+
+    connectionStatus.textContent=
+        'Статус: Отримання відео через Wi-Fi 0%...';
+}
+
+async function cacheReceiveChunk(msg){
+
+    if(!cacheTransferActive)
+        return;
+
+    if(String(msg.id)!==cacheReceiveId)
+        return;
+
+    if(!msg.data)
+        return;
+
+    try{
+
+        let buffer=msg.data;
+
+        /*
+          Деякі реалізації PeerJS
+          можуть повернути Uint8Array.
+        */
+        if(buffer instanceof Uint8Array)
+            buffer=buffer.buffer;
+
+        cacheReceiveChunks[
+            Number(msg.n)||0
+        ]=buffer;
+
+        const length=
+            buffer.byteLength||0;
+
+        cacheReceiveReceived+=length;
+
+        const percent=
+            cacheReceiveSize>0
+            ?cacheReceiveReceived/cacheReceiveSize*100
+            :0;
+
+        const elapsed=
+            (performance.now()-cacheReceiveStartedAt)/1000;
+
+        const speed=
+            elapsed>0
+            ?cacheReceiveReceived/elapsed/1024/1024
+            :0;
+
+        connectionStatus.textContent=
+            `Статус: Завантаження ${percent.toFixed(1)}% • ${speed.toFixed(1)} МБ/с`;
+
+    }catch(e){
+
+        console.error(
+            'Cache receive chunk error:',
+            e
+        );
+    }
+}
+
+async function cacheReceiveEnd(msg){
+
+    if(!cacheTransferActive)
+        return;
+
+    if(String(msg.id)!==cacheReceiveId)
+        return;
+
+    connectionStatus.textContent=
+        'Статус: Збираю відеофайл на S10...';
+
+    try{
+
+        const validChunks=
+            cacheReceiveChunks.filter(
+                item=>item
+            );
+
+        if(
+            cacheReceiveSize>0&&
+            cacheReceiveReceived<cacheReceiveSize
+        ){
+
+            connectionStatus.textContent=
+                'Статус: Помилка передачі — файл отримано не повністю.';
+
+            cacheTransferActive=false;
+
+            return;
+        }
+
+        const blob=
+            new Blob(
+                validChunks,
+                {
+                    type:
+                        cacheReceiveType||
+                        'video/mp4'
+                }
+            );
+
+        /*
+          Зберігаємо тільки один
+          поточний файл.
+        */
+        const saved=
+            await saveCacheBlob(
+                blob,
+                {
+                    name:cacheReceiveName,
+                    type:cacheReceiveType
+                }
+            );
+
+        if(!saved){
+
+            connectionStatus.textContent=
+                'Статус: Не вдалося записати відео в кеш S10.';
+
+            cacheTransferActive=false;
+
+            return;
+        }
+
+        await setCachedVideoBlob(
+            blob,
+            {
+                name:cacheReceiveName,
+                type:cacheReceiveType
+            }
+        );
+
+        cacheRemoteReady=true;
+        cacheRemoteFileName=
+            cacheReceiveName;
+
+        cacheTransferActive=false;
+
+        sendMessage({
+
+            type:'cache_ready',
+
+            id:cacheReceiveId,
+
+            name:cacheReceiveName,
+
+            duration:
+                Number.isFinite(videoPlayer.duration)
+                ?videoPlayer.duration
+                :0,
+
+            size:blob.size
+        });
+
+        connectionStatus.textContent=
+            'Статус: Відео готове на S10.';
+
+        playPauseBtn.textContent=
+            '▶ Грати';
+
+        startAntiSleepAudio();
+        requestWakeLock();
+
+    }catch(e){
+
+        console.error(
+            'Cache assemble error:',
+            e
+        );
+
+        cacheTransferActive=false;
+
+        connectionStatus.textContent=
+            'Статус: Помилка складання відеофайлу.';
+    }
+
+    cacheReceiveChunks=[];
+}
+
+/* =========================================================
+   CACHE LOAD EXISTING
+   ========================================================= */
+
+async function tryLoadExistingCache(){
+
+    if(isHost)
+        return;
+
+    if(videoModeSelect.value!==CACHE_MODE)
+        return;
+
+    const saved=
+        await loadCacheBlob();
+
+    if(!saved||!saved.blob)
+        return;
+
+    try{
+
+        await setCachedVideoBlob(
+            saved.blob,
+            saved
+        );
+
+        cacheRemoteReady=true;
+
+        cacheRemoteFileName=
+            saved.name||'';
+
+        connectionStatus.textContent=
+            'Статус: Знайдено попередній кеш.';
+
+    }catch(e){}
+}
+
+/* =========================================================
+   VIDEO INPUT
+========================================================= */
 
 videoInput.addEventListener('change',e=>{
 
@@ -567,6 +1376,65 @@ videoInput.addEventListener('change',e=>{
 
     if(!file)
         return;
+
+    /*
+      Новий режим кешу:
+      файл на S25+ використовується як джерело,
+      а копія автоматично передається S10.
+    */
+    if(
+        isHost&&
+        videoModeSelect.value===CACHE_MODE
+    ){
+
+        if(localVideoBlobUrl){
+
+            try{
+                URL.revokeObjectURL(
+                    localVideoBlobUrl
+                );
+            }catch(err){}
+        }
+
+        localVideoBlobUrl=
+            URL.createObjectURL(file);
+
+        videoPlayer.pause();
+
+        videoPlayer.srcObject=null;
+
+        videoPlayer.src=
+            localVideoBlobUrl;
+
+        videoPlayer.muted=false;
+        videoPlayer.volume=1;
+
+        videoPlayer.load();
+
+        playPauseBtn.textContent=
+            '▶ Грати';
+
+        connectionStatus.textContent=
+            'Статус: Відео вибрано. Очікування підключення S10...';
+
+        videoPlayer.addEventListener(
+            'loadedmetadata',
+            ()=>{
+
+                updateVideoStyle();
+
+                if(conn&&conn.open){
+
+                    startCacheTransfer(file);
+
+                }
+
+            },
+            {once:true}
+        );
+
+        return;
+    }
 
     if(localVideoBlobUrl){
 
@@ -612,7 +1480,7 @@ videoInput.addEventListener('change',e=>{
 });
 
 /* =========================
-CHANGE VIDEO
+   CHANGE VIDEO
 ========================= */
 
 changeVideoBtn.addEventListener('click',()=>{
@@ -625,7 +1493,7 @@ changeVideoBtn.addEventListener('click',()=>{
 });
 
 /* =========================
-CLEAR REMOTE VIDEO
+   CLEAR REMOTE VIDEO
 ========================= */
 
 function clearRemoteVideo(){
@@ -665,9 +1533,9 @@ function clearRemoteVideo(){
         '▶ Грати';
 }
 
-/* =========================
-CHANGE VIDEO HOST
-========================= */
+/* =========================================================
+   CHANGE VIDEO HOST
+========================================================= */
 
 newVideoInput.addEventListener('change',async e=>{
 
@@ -678,6 +1546,130 @@ newVideoInput.addEventListener('change',async e=>{
 
     if(videoChangeInProgress)
         return;
+
+    /*
+      НОВИЙ CACHE РЕЖИМ
+    */
+    if(videoModeSelect.value===CACHE_MODE){
+
+        videoChangeInProgress=true;
+
+        videoVersion++;
+
+        const currentVersion=
+            videoVersion;
+
+        cacheHostSendToken++;
+
+        cacheHostSending=false;
+
+        connectionStatus.textContent=
+            'Статус: Підготовка нового відео...';
+
+        if(conn&&conn.open){
+
+            sendMessage({
+
+                type:'cache_transfer_start',
+
+                id:
+                    Date.now().toString(36)+
+                    '-' +
+                    Math.random().toString(36).slice(2,8),
+
+                name:file.name,
+
+                size:file.size,
+
+                mime:file.type||'video/mp4',
+
+                chunkSize:CACHE_CHUNK_SIZE
+            });
+
+            /*
+              Справжню передачу запускаємо
+              окремою функцією, яка повторно
+              сформує transfer ID.
+            */
+
+            await new Promise(resolve=>
+                setTimeout(resolve,100)
+            );
+
+            /*
+              Відправляємо через нормальний
+              механізм transfer.
+            */
+            await startCacheTransfer(file);
+        }
+
+        if(currentVersion===videoVersion){
+
+            if(localVideoBlobUrl){
+
+                try{
+                    URL.revokeObjectURL(
+                        localVideoBlobUrl
+                    );
+                }catch(err){}
+            }
+
+            localVideoBlobUrl=
+                URL.createObjectURL(file);
+
+            videoPlayer.pause();
+            videoPlayer.srcObject=null;
+            videoPlayer.src=
+                localVideoBlobUrl;
+
+            videoPlayer.load();
+
+            await new Promise(resolve=>{
+
+                if(videoPlayer.readyState>=1){
+
+                    resolve();
+
+                }else{
+
+                    videoPlayer.addEventListener(
+                        'loadedmetadata',
+                        resolve,
+                        {once:true}
+                    );
+
+                    setTimeout(
+                        resolve,
+                        4000
+                    );
+                }
+            });
+
+            updateVideoStyle();
+
+            videoPlayer.currentTime=0;
+
+            playPauseBtn.textContent=
+                '▶ Грати';
+
+            sendMessage({
+
+                type:'cache_host_ready',
+
+                duration:
+                    Number.isFinite(videoPlayer.duration)
+                    ?videoPlayer.duration
+                    :0
+            });
+
+            connectionStatus.textContent=
+                'Статус: Нове відео готове на S25+. Очікуємо S10...';
+        }
+
+        videoChangeInProgress=false;
+
+        return;
+    }
 
     if(videoModeSelect.value!=='stream'){
 
@@ -870,7 +1862,7 @@ newVideoInput.addEventListener('change',async e=>{
 });
 
 /* =========================
-HOST
+   HOST
 ========================= */
 
 startHostBtn.addEventListener('click',()=>{
@@ -958,7 +1950,7 @@ function startHostPeer(){
 }
 
 /* =========================
-CLIENT
+   CLIENT
 ========================= */
 
 connectClientBtn.addEventListener('click',()=>{
@@ -1020,6 +2012,22 @@ connectClientBtn.addEventListener('click',()=>{
 
         call.on('stream',remoteStream=>{
 
+            /*
+              У cache режимі P2P video stream
+              НЕ використовується.
+            */
+            if(videoModeSelect.value===CACHE_MODE){
+
+                try{
+                    call.close();
+                }catch(e){}
+
+                if(activeCall===call)
+                    activeCall=null;
+
+                return;
+            }
+
             try{
                 videoPlayer.pause();
             }catch(e){}
@@ -1046,10 +2054,6 @@ connectClientBtn.addEventListener('click',()=>{
             connectionStatus.textContent=
                 'Статус: Відео отримано з головного телефону.';
 
-            /*
-              Після отримання нового потоку
-              чекаємо на stream_state.
-            */
             hostSyncTime=0;
             hostSyncReceivedAt=0;
             hostSyncPaused=true;
@@ -1085,7 +2089,7 @@ connectClientBtn.addEventListener('click',()=>{
 });
 
 /* =========================
-SEND MESSAGE
+   SEND MESSAGE
 ========================= */
 
 function sendMessage(message){
@@ -1096,7 +2100,9 @@ function sendMessage(message){
     try{
 
         conn.send(
-            JSON.stringify(message)
+            typeof message==='string'
+            ?message
+            :message
         );
 
         return true;
@@ -1108,7 +2114,7 @@ function sendMessage(message){
 }
 
 /* =========================
-SCREEN INFO
+   SCREEN INFO
 ========================= */
 
 function sendScreenInfo(){
@@ -1128,7 +2134,7 @@ function sendScreenInfo(){
 }
 
 /* =========================
-STREAMING
+   STREAMING
 ========================= */
 
 function startStreaming(){
@@ -1200,7 +2206,7 @@ function startStreaming(){
 }
 
 /* =========================
-STATE
+   STATE
 ========================= */
 
 function sendStreamState(){
@@ -1234,11 +2240,6 @@ function sendStreamState(){
         paused:
             videoPlayer.paused,
 
-        /*
-          Час відправки пакета.
-          S10 використовує його для прогнозу
-          поточної позиції між пакетами.
-        */
         sentAt:
             Date.now(),
 
@@ -1265,12 +2266,69 @@ function sendSyncState(){
     });
 }
 
+function sendCacheSyncState(){
+
+    if(!isHost||
+       !conn||
+       !conn.open||
+       videoModeSelect.value!==CACHE_MODE)
+        return;
+
+    const duration=
+        Number(videoPlayer.duration);
+
+    const time=
+        Number(videoPlayer.currentTime);
+
+    sendMessage({
+
+        type:'cache_sync_state',
+
+        time:
+            Number.isFinite(time)
+            ?time
+            :0,
+
+        duration:
+            Number.isFinite(duration)
+            ?duration
+            :0,
+
+        paused:
+            videoPlayer.paused,
+
+        generation:
+            cacheSyncGeneration,
+
+        sentAt:
+            Date.now()
+    });
+}
+
 function broadcastSeek(time){
 
     if(!isHost||
        !conn||
        !conn.open)
         return;
+
+    if(videoModeSelect.value===CACHE_MODE){
+
+        sendMessage({
+
+            type:'cache_seek',
+
+            time:time,
+
+            paused:
+                videoPlayer.paused,
+
+            generation:
+                cacheSyncGeneration
+        });
+
+        return;
+    }
 
     sendMessage({
 
@@ -1287,7 +2345,7 @@ function broadcastSeek(time){
 }
 
 /* =========================
-HOST CONTROLS
+   HOST CONTROLS
 ========================= */
 
 function hostPlay(){
@@ -1301,8 +2359,26 @@ function hostPlay(){
 
     startAntiSleepAudio();
 
-    sendSyncState();
-    sendStreamState();
+    if(videoModeSelect.value===CACHE_MODE){
+
+        cacheSyncGeneration++;
+
+        sendMessage({
+
+            type:'cache_play',
+
+            time:videoPlayer.currentTime,
+
+            generation:cacheSyncGeneration
+        });
+
+        sendCacheSyncState();
+
+    }else{
+
+        sendSyncState();
+        sendStreamState();
+    }
 }
 
 function hostPause(){
@@ -1314,11 +2390,86 @@ function hostPause(){
     playPauseBtn.textContent=
         '▶ Грати';
 
-    sendSyncState();
-    sendStreamState();
+    if(videoModeSelect.value===CACHE_MODE){
+
+        cacheSyncGeneration++;
+
+        sendMessage({
+
+            type:'cache_pause',
+
+            time:videoPlayer.currentTime,
+
+            generation:cacheSyncGeneration
+        });
+
+        sendCacheSyncState();
+
+    }else{
+
+        sendSyncState();
+        sendStreamState();
+    }
 }
 
 function hostRestart(){
+
+    if(videoModeSelect.value===CACHE_MODE){
+
+        cacheSyncGeneration++;
+
+        try{
+            videoPlayer.pause();
+        }catch(e){}
+
+        try{
+            videoPlayer.currentTime=0;
+        }catch(e){}
+
+        videoPlayer.playbackRate=1;
+
+        sendMessage({
+
+            type:'cache_restart',
+
+            time:0,
+
+            generation:cacheSyncGeneration
+        });
+
+        videoPlayer.play().catch(()=>{});
+
+        playPauseBtn.textContent=
+            '❚❚ Пауза';
+
+        setTimeout(()=>{
+
+            if(!isHost||
+               videoModeSelect.value!==CACHE_MODE)
+                return;
+
+            try{
+                videoPlayer.currentTime=0;
+            }catch(e){}
+
+            sendCacheSyncState();
+
+        },100);
+
+        setTimeout(()=>{
+
+            if(!isHost||
+               videoModeSelect.value!==CACHE_MODE)
+                return;
+
+            sendCacheSyncState();
+
+        },500);
+
+        startAntiSleepAudio();
+
+        return;
+    }
 
     remoteSyncGeneration++;
 
@@ -1332,11 +2483,6 @@ function hostRestart(){
 
     videoPlayer.playbackRate=1;
 
-    /*
-      Окреме повідомлення restart.
-      Воно має пріоритет над звичайною
-      синхронізацією часу.
-    */
     sendMessage({
 
         type:'restart',
@@ -1349,9 +2495,6 @@ function hostRestart(){
             remoteSyncGeneration
     });
 
-    /*
-      Додатковий seek одразу після restart.
-    */
     sendMessage({
 
         type:'seek',
@@ -1369,10 +2512,6 @@ function hostRestart(){
     playPauseBtn.textContent=
         '❚❚ Пауза';
 
-    /*
-      Повторна передача через короткий
-      інтервал. Це важливо для MediaStream.
-    */
     setTimeout(()=>{
 
         if(!isHost)
@@ -1412,7 +2551,7 @@ function hostRestart(){
 }
 
 /* =========================
-REMOTE STREAM SYNC ENGINE
+   REMOTE STREAM SYNC ENGINE
 ========================= */
 
 function getPredictedHostTime(){
@@ -1470,7 +2609,10 @@ function updateRemoteTimeline(){
     timelineRange.value=
         Math.max(
             0,
-            Math.min(100,progress)
+            Math.min(
+                100,
+                progress
+            )
         );
 
     timeDisplay.textContent=
@@ -1515,12 +2657,6 @@ function correctRemoteStream(){
     const error=
         target-actual;
 
-    /*
-      Маленька різниця:
-      нічого не робимо.
-      Саме це прибирає постійне
-      "доганяння" в динамічних сценах.
-    */
     if(Math.abs(error)<0.06){
 
         videoPlayer.playbackRate=1;
@@ -1528,10 +2664,6 @@ function correctRemoteStream(){
         return;
     }
 
-    /*
-      Середня різниця:
-      плавно змінюємо швидкість.
-    */
     if(Math.abs(error)<0.8){
 
         let correction=
@@ -1552,11 +2684,6 @@ function correctRemoteStream(){
         return;
     }
 
-    /*
-      Велика різниця:
-      одноразово перемотуємо.
-      Не робимо цього при кожному пакеті.
-    */
     if(Math.abs(error)>=0.8){
 
         try{
@@ -1573,23 +2700,200 @@ function correctRemoteStream(){
     }
 }
 
+/* =========================================================
+   НОВА СИНХРОНІЗАЦІЯ ЛОКАЛЬНОГО КЕШУ
+========================================================= */
+
+function getCachePredictedTime(){
+
+    if(cacheSyncPaused)
+        return cacheSyncTime;
+
+    if(!cacheSyncReceivedAt)
+        return cacheSyncTime;
+
+    const elapsed=
+        (performance.now()-
+         cacheSyncReceivedAt)/1000;
+
+    return cacheSyncTime+elapsed;
+}
+
+function updateCacheTimeline(){
+
+    if(isHost)
+        return;
+
+    if(videoModeSelect.value!==CACHE_MODE)
+        return;
+
+    if(!cacheRemoteReady)
+        return;
+
+    if(!Number.isFinite(videoPlayer.duration)||
+       videoPlayer.duration<=0)
+        return;
+
+    if(isDraggingTimeline)
+        return;
+
+    let t=
+        getCachePredictedTime();
+
+    t=
+        Math.max(
+            0,
+            Math.min(
+                videoPlayer.duration,
+                t
+            )
+        );
+
+    timelineRange.value=
+        Math.max(
+            0,
+            Math.min(
+                100,
+                t/videoPlayer.duration*100
+            )
+        );
+
+    timeDisplay.textContent=
+        `${formatTime(t)} / ${formatTime(videoPlayer.duration)}`;
+}
+
+function correctCachePlayback(){
+
+    if(isHost)
+        return;
+
+    if(videoModeSelect.value!==CACHE_MODE)
+        return;
+
+    if(!cacheRemoteReady)
+        return;
+
+    if(cacheSyncPaused){
+
+        if(!videoPlayer.paused)
+            videoPlayer.pause();
+
+        videoPlayer.playbackRate=1;
+
+        return;
+    }
+
+    if(videoPlayer.paused){
+
+        videoPlayer.play().catch(()=>{});
+
+        return;
+    }
+
+    const target=
+        getCachePredictedTime();
+
+    const actual=
+        Number(videoPlayer.currentTime);
+
+    if(!Number.isFinite(target)||
+       !Number.isFinite(actual))
+        return;
+
+    const error=
+        target-actual;
+
+    /*
+      У локального файлу нам уже не треба
+      боротися з мережевою затримкою відео.
+      Тому допускаємо дуже малу похибку.
+    */
+
+    if(Math.abs(error)<0.025){
+
+        videoPlayer.playbackRate=1;
+
+        return;
+    }
+
+    /*
+      Якщо розбіжність невелика,
+      плавно підганяємо.
+    */
+    if(Math.abs(error)<0.25){
+
+        let rate=
+            1+(error*0.35);
+
+        rate=
+            Math.max(
+                0.95,
+                Math.min(
+                    1.05,
+                    rate
+                )
+            );
+
+        videoPlayer.playbackRate=
+            rate;
+
+        return;
+    }
+
+    /*
+      Якщо різниця вже помітна —
+      робимо жорстке вирівнювання.
+    */
+
+    const now=
+        performance.now();
+
+    if(now-cacheLastHardSync>500){
+
+        cacheLastHardSync=now;
+
+        try{
+
+            videoPlayer.currentTime=
+                Math.max(
+                    0,
+                    Math.min(
+                        videoPlayer.duration,
+                        target
+                    )
+                );
+
+        }catch(e){}
+
+        videoPlayer.playbackRate=1;
+    }
+}
+
 if(remoteSyncCorrectionTimer)
     clearInterval(remoteSyncCorrectionTimer);
 
 remoteSyncCorrectionTimer=
     setInterval(()=>{
 
-        if(!isHost&&
-           videoPlayer.srcObject){
+        if(!isHost){
 
-            correctRemoteStream();
-            updateRemoteTimeline();
+            if(videoModeSelect.value==='cache'){
+
+                correctCachePlayback();
+                updateCacheTimeline();
+
+            }else if(videoPlayer.srcObject){
+
+                correctRemoteStream();
+                updateRemoteTimeline();
+
+            }
         }
 
-    },120);
+    },80);
 
 /* =========================
-CONNECTION
+   CONNECTION
 ========================= */
 
 function setupConnection(){
@@ -1601,7 +2905,7 @@ function setupConnection(){
 
         sendScreenInfo();
 
-        setTimeout(()=>{
+        setTimeout(async()=>{
 
             setupCard.style.display='none';
 
@@ -1623,37 +2927,67 @@ function setupConnection(){
 
                 setTimeout(()=>{
 
-                    if(videoModeSelect.value==='stream'&&
-                       localVideoBlobUrl){
+                    if(
+                        videoModeSelect.value==='stream'&&
+                        localVideoBlobUrl
+                    ){
 
                         startStreaming();
+
+                    }
+
+                    if(
+                        videoModeSelect.value===CACHE_MODE&&
+                        localVideoBlobUrl
+                    ){
+
+                        /*
+                          Передача відбувається після
+                          завантаження метаданих.
+                        */
+                        if(
+                            videoPlayer.readyState>=1&&
+                            videoInput.files&&
+                            videoInput.files[0]
+                        ){
+
+                            startCacheTransfer(
+                                videoInput.files[0]
+                            );
+                        }
                     }
 
                     sendStreamState();
                     sendSyncState();
+                    sendCacheSyncState();
 
                 },700);
 
                 if(syncInterval)
                     clearInterval(syncInterval);
 
-                /*
-                  Частіша передача стану.
-                  Таймлайн S10 тепер орієнтується
-                  саме на цей потік даних.
-                */
                 syncInterval=
                     setInterval(()=>{
 
                         if(conn&&conn.open){
 
-                            if(videoModeSelect.value==='stream'){
+                            if(
+                                videoModeSelect.value==='stream'
+                            ){
 
                                 sendStreamState();
 
-                            }else{
+                            }else if(
+                                videoModeSelect.value==='local'
+                            ){
 
                                 sendSyncState();
+
+                            }else if(
+                                videoModeSelect.value===CACHE_MODE
+                            ){
+
+                                sendCacheSyncState();
                             }
                         }
 
@@ -1663,6 +2997,16 @@ function setupConnection(){
 
                 playPauseBtn.textContent=
                     '▶ Грати';
+
+                if(videoModeSelect.value===CACHE_MODE){
+
+                    await tryLoadExistingCache();
+
+                    sendMessage({
+
+                        type:'cache_client_ready'
+                    });
+                }
             }
 
         },300);
@@ -1677,14 +3021,40 @@ function setupConnection(){
         conn.on('open',handleReady);
     }
 
-    conn.on('data',data=>{
+    conn.on('data',async data=>{
 
         try{
 
-            const msg=
-                typeof data==='string'
-                ?JSON.parse(data)
-                :data;
+            /*
+              Усі повідомлення керування
+              залишаються JSON.
+
+              У cache режимі chunks приходять
+              як об'єкти {type:'cache_chunk'}.
+            */
+
+            let msg=data;
+
+            if(typeof data==='string'){
+
+                msg=JSON.parse(data);
+
+            }else if(
+                data instanceof ArrayBuffer||
+                data instanceof Uint8Array||
+                data instanceof Blob
+            ){
+
+                /*
+                  Старий режим не використовує
+                  сирі binary повідомлення напряму.
+                */
+
+                return;
+            }
+
+            if(!msg||typeof msg!=='object')
+                return;
 
             if(msg.type==='screen_info'){
 
@@ -1698,6 +3068,82 @@ function setupConnection(){
 
                 if(isHost)
                     sendScreenInfo();
+            }
+
+            else if(msg.type==='cache_transfer_start'&&!isHost){
+
+                if(videoModeSelect.value!==CACHE_MODE)
+                    return;
+
+                await cacheReceiveStart(msg);
+            }
+
+            else if(msg.type==='cache_chunk'&&!isHost){
+
+                if(videoModeSelect.value!==CACHE_MODE)
+                    return;
+
+                await cacheReceiveChunk(msg);
+            }
+
+            else if(msg.type==='cache_transfer_end'&&!isHost){
+
+                if(videoModeSelect.value!==CACHE_MODE)
+                    return;
+
+                await cacheReceiveEnd(msg);
+            }
+
+            else if(msg.type==='cache_ready'&&isHost){
+
+                if(videoModeSelect.value!==CACHE_MODE)
+                    return;
+
+                cacheRemoteReady=true;
+
+                cacheRemoteDuration=
+                    Number(msg.duration)||0;
+
+                connectionStatus.textContent=
+                    'Статус: Відео успішно передано на S10. Готово до синхронного відтворення.';
+
+                /*
+                  Тепер обидва мають локальний файл.
+                  Можемо стартувати тільки після
+                  підтвердження S10.
+                */
+
+                sendCacheSyncState();
+            }
+
+            else if(msg.type==='cache_client_ready'&&isHost){
+
+                if(videoModeSelect.value!==CACHE_MODE)
+                    return;
+
+                if(
+                    videoInput.files&&
+                    videoInput.files[0]
+                ){
+
+                    startCacheTransfer(
+                        videoInput.files[0]
+                    );
+
+                }else{
+
+                    connectionStatus.textContent=
+                        'Статус: Виберіть відеофайл для кешу.';
+                }
+            }
+
+            else if(msg.type==='cache_host_ready'&&!isHost){
+
+                if(videoModeSelect.value!==CACHE_MODE)
+                    return;
+
+                cacheRemoteDuration=
+                    Number(msg.duration)||0;
             }
 
             else if(msg.type==='video_change_start'&&!isHost){
@@ -1732,20 +3178,18 @@ function setupConnection(){
 
             /* =========================
                STREAM STATE CLIENT
-               ========================= */
+            ========================= */
 
             else if(msg.type==='stream_state'&&!isHost){
+
+                if(videoModeSelect.value==='cache')
+                    return;
 
                 const generation=
                     Number.isFinite(Number(msg.generation))
                     ?Number(msg.generation)
                     :remoteSyncGeneration;
 
-                /*
-                  Старі пакети після restart
-                  більше не повинні повертати
-                  таймлайн назад.
-                */
                 if(generation<remoteSyncGeneration)
                     return;
 
@@ -1764,10 +3208,6 @@ function setupConnection(){
                 remoteVideoPaused=
                     !!msg.paused;
 
-                /*
-                  Головне:
-                  цей час стає еталоном для S10.
-                */
                 hostSyncTime=
                     Math.max(
                         0,
@@ -1780,10 +3220,6 @@ function setupConnection(){
                 hostSyncPaused=
                     remoteVideoPaused;
 
-                /*
-                  Таймлайн одразу отримує
-                  позицію S25+.
-                */
                 if(remoteVideoDuration>0&&
                    !isDraggingTimeline){
 
@@ -1823,11 +3259,6 @@ function setupConnection(){
 
                         if(videoPlayer.paused){
 
-                            /*
-                              Перед play один раз
-                              намагаємось потрапити
-                              ближче до позиції Host.
-                            */
                             const actual=
                                 Number(videoPlayer.currentTime);
 
@@ -1853,8 +3284,432 @@ function setupConnection(){
             }
 
             /* =========================
+               CACHE SYNC STATE
+            ========================= */
+
+            else if(msg.type==='cache_sync_state'&&!isHost){
+
+                if(videoModeSelect.value!==CACHE_MODE)
+                    return;
+
+                if(!cacheRemoteReady)
+                    return;
+
+                const generation=
+                    Number.isFinite(Number(msg.generation))
+                    ?Number(msg.generation)
+                    :cacheSyncGeneration;
+
+                if(generation<cacheSyncGeneration)
+                    return;
+
+                cacheSyncGeneration=
+                    generation;
+
+                const newTime=
+                    Number(msg.time);
+
+                const duration=
+                    Number(msg.duration)||0;
+
+                if(!Number.isFinite(newTime))
+                    return;
+
+                cacheSyncTime=
+                    Math.max(
+                        0,
+                        newTime
+                    );
+
+                cacheSyncReceivedAt=
+                    performance.now();
+
+                cacheSyncPaused=
+                    !!msg.paused;
+
+                if(duration>0)
+                    remoteVideoDuration=duration;
+
+                if(!isDraggingTimeline){
+
+                    const d=
+                        Number.isFinite(videoPlayer.duration)&&
+                        videoPlayer.duration>0
+                        ?videoPlayer.duration
+                        :duration;
+
+                    if(d>0){
+
+                        timelineRange.value=
+                            Math.max(
+                                0,
+                                Math.min(
+                                    100,
+                                    cacheSyncTime/d*100
+                                )
+                            );
+
+                        timeDisplay.textContent=
+                            `${formatTime(cacheSyncTime)} / ${formatTime(d)}`;
+                    }
+                }
+
+                if(cacheSyncPaused){
+
+                    videoPlayer.pause();
+                    videoPlayer.playbackRate=1;
+
+                    playPauseBtn.textContent=
+                        '▶ Грати';
+
+                }else{
+
+                    const actual=
+                        Number(videoPlayer.currentTime);
+
+                    if(
+                        Number.isFinite(actual)&&
+                        Math.abs(actual-cacheSyncTime)>0.25
+                    ){
+
+                        try{
+
+                            videoPlayer.currentTime=
+                                cacheSyncTime;
+
+                        }catch(e){}
+                    }
+
+                    videoPlayer.play().catch(()=>{});
+
+                    videoPlayer.playbackRate=1;
+
+                    playPauseBtn.textContent=
+                        '❚❚ Пауза';
+
+                    startAntiSleepAudio();
+                    requestWakeLock();
+                }
+            }
+
+            /* =========================
+               CACHE PLAY
+            ========================= */
+
+            else if(msg.type==='cache_play'&&!isHost){
+
+                if(videoModeSelect.value!==CACHE_MODE)
+                    return;
+
+                const generation=
+                    Number(msg.generation);
+
+                if(
+                    Number.isFinite(generation)&&
+                    generation<cacheSyncGeneration
+                )
+                    return;
+
+                if(Number.isFinite(generation))
+                    cacheSyncGeneration=
+                        generation;
+
+                const t=
+                    Number(msg.time);
+
+                if(Number.isFinite(t)){
+
+                    cacheSyncTime=t;
+
+                    cacheSyncReceivedAt=
+                        performance.now();
+                }
+
+                cacheSyncPaused=false;
+
+                const actual=
+                    Number(videoPlayer.currentTime);
+
+                if(
+                    Number.isFinite(t)&&
+                    Number.isFinite(actual)&&
+                    Math.abs(actual-t)>0.25
+                ){
+
+                    try{
+                        videoPlayer.currentTime=t;
+                    }catch(e){}
+                }
+
+                videoPlayer.playbackRate=1;
+
+                videoPlayer.play().catch(()=>{});
+
+                playPauseBtn.textContent=
+                    '❚❚ Пауза';
+
+                startAntiSleepAudio();
+                requestWakeLock();
+            }
+
+            /* =========================
+               CACHE PAUSE
+            ========================= */
+
+            else if(msg.type==='cache_pause'&&!isHost){
+
+                if(videoModeSelect.value!==CACHE_MODE)
+                    return;
+
+                const generation=
+                    Number(msg.generation);
+
+                if(
+                    Number.isFinite(generation)&&
+                    generation<cacheSyncGeneration
+                )
+                    return;
+
+                if(Number.isFinite(generation))
+                    cacheSyncGeneration=
+                        generation;
+
+                const t=
+                    Number(msg.time);
+
+                if(Number.isFinite(t)){
+
+                    cacheSyncTime=t;
+
+                    cacheSyncReceivedAt=
+                        performance.now();
+                }
+
+                cacheSyncPaused=true;
+
+                if(
+                    Number.isFinite(t)&&
+                    Number.isFinite(videoPlayer.currentTime)&&
+                    Math.abs(videoPlayer.currentTime-t)>0.05
+                ){
+
+                    try{
+                        videoPlayer.currentTime=t;
+                    }catch(e){}
+                }
+
+                videoPlayer.pause();
+                videoPlayer.playbackRate=1;
+
+                playPauseBtn.textContent=
+                    '▶ Грати';
+            }
+
+            /* =========================
+               CACHE RESTART
+            ========================= */
+
+            else if(msg.type==='cache_restart'&&!isHost){
+
+                if(videoModeSelect.value!==CACHE_MODE)
+                    return;
+
+                const generation=
+                    Number(msg.generation);
+
+                if(
+                    Number.isFinite(generation)&&
+                    generation<cacheSyncGeneration
+                )
+                    return;
+
+                if(Number.isFinite(generation))
+                    cacheSyncGeneration=
+                        generation;
+
+                cacheSyncTime=0;
+
+                cacheSyncReceivedAt=
+                    performance.now();
+
+                cacheSyncPaused=false;
+
+                cacheLastHardSync=
+                    performance.now();
+
+                try{
+                    videoPlayer.pause();
+                }catch(e){}
+
+                try{
+                    videoPlayer.currentTime=0;
+                }catch(e){}
+
+                videoPlayer.playbackRate=1;
+
+                timelineRange.value=0;
+
+                if(videoPlayer.duration>0){
+
+                    timeDisplay.textContent=
+                        `00:00 / ${formatTime(videoPlayer.duration)}`;
+                }
+
+                videoPlayer.play().catch(()=>{});
+
+                playPauseBtn.textContent=
+                    '❚❚ Пауза';
+
+                /*
+                  Два повторних вирівнювання
+                  для максимально однакового старту.
+                */
+                setTimeout(()=>{
+
+                    if(videoModeSelect.value!==CACHE_MODE)
+                        return;
+
+                    try{
+                        videoPlayer.currentTime=0;
+                    }catch(e){}
+
+                    videoPlayer.playbackRate=1;
+
+                    videoPlayer.play().catch(()=>{});
+
+                },120);
+
+                setTimeout(()=>{
+
+                    if(videoModeSelect.value!==CACHE_MODE)
+                        return;
+
+                    cacheSyncTime=0;
+
+                    cacheSyncReceivedAt=
+                        performance.now();
+
+                    try{
+                        videoPlayer.currentTime=0;
+                    }catch(e){}
+
+                    videoPlayer.playbackRate=1;
+
+                },350);
+
+                startAntiSleepAudio();
+                requestWakeLock();
+            }
+
+            /* =========================
+               CACHE SEEK
+            ========================= */
+
+            else if(msg.type==='cache_seek'&&!isHost){
+
+                if(videoModeSelect.value!==CACHE_MODE)
+                    return;
+
+                if(isDraggingTimeline)
+                    return;
+
+                const generation=
+                    Number(msg.generation);
+
+                if(
+                    Number.isFinite(generation)&&
+                    generation<cacheSyncGeneration
+                )
+                    return;
+
+                if(Number.isFinite(generation))
+                    cacheSyncGeneration=
+                        generation;
+
+                const t=
+                    Math.max(
+                        0,
+                        Number(msg.time)||0
+                    );
+
+                cacheSyncTime=t;
+
+                cacheSyncReceivedAt=
+                    performance.now();
+
+                cacheSyncPaused=
+                    !!msg.paused;
+
+                cacheLastHardSync=
+                    performance.now();
+
+                try{
+                    videoPlayer.currentTime=t;
+                }catch(e){}
+
+                videoPlayer.playbackRate=1;
+
+                if(videoPlayer.duration>0){
+
+                    timelineRange.value=
+                        Math.max(
+                            0,
+                            Math.min(
+                                100,
+                                t/videoPlayer.duration*100
+                            )
+                        );
+
+                    timeDisplay.textContent=
+                        `${formatTime(t)} / ${formatTime(videoPlayer.duration)}`;
+                }
+
+                if(msg.paused){
+
+                    videoPlayer.pause();
+
+                    playPauseBtn.textContent=
+                        '▶ Грати';
+
+                }else{
+
+                    /*
+                      Повторна установка після
+                      короткої затримки підвищує
+                      точність після seek.
+                    */
+                    setTimeout(()=>{
+
+                        try{
+                            videoPlayer.currentTime=t;
+                        }catch(e){}
+
+                        videoPlayer.playbackRate=1;
+
+                        videoPlayer.play().catch(()=>{});
+
+                    },80);
+
+                    setTimeout(()=>{
+
+                        try{
+                            videoPlayer.currentTime=t;
+                        }catch(e){}
+
+                        videoPlayer.playbackRate=1;
+
+                        videoPlayer.play().catch(()=>{});
+
+                    },220);
+
+                    playPauseBtn.textContent=
+                        '❚❚ Пауза';
+                }
+            }
+
+            /* =========================
                LOCAL SYNC
-               ========================= */
+            ========================= */
 
             else if(msg.type==='sync_state'&&!isHost){
 
@@ -1935,10 +3790,13 @@ function setupConnection(){
             }
 
             /* =========================
-               RESTART
-               ========================= */
+               RESTART STREAM
+            ========================= */
 
             else if(msg.type==='restart'&&!isHost){
+
+                if(videoModeSelect.value==='cache')
+                    return;
 
                 const generation=
                     Number(msg.generation);
@@ -1970,10 +3828,6 @@ function setupConnection(){
                         `00:00 / ${formatTime(remoteVideoDuration)}`;
                 }
 
-                /*
-                  Примусове повернення
-                  P2P video element на 0.
-                */
                 try{
 
                     videoPlayer.currentTime=0;
@@ -1987,10 +3841,6 @@ function setupConnection(){
                 playPauseBtn.textContent=
                     '❚❚ Пауза';
 
-                /*
-                  MediaStream може прийняти seek
-                  не миттєво, тому повторюємо.
-                */
                 setTimeout(()=>{
 
                     if(!videoPlayer.srcObject)
@@ -2020,8 +3870,8 @@ function setupConnection(){
             }
 
             /* =========================
-               SEEK
-               ========================= */
+               SEEK STREAM
+            ========================= */
 
             else if(msg.type==='seek'){
 
@@ -2029,6 +3879,9 @@ function setupConnection(){
                     return;
 
                 if(isHost)
+                    return;
+
+                if(videoModeSelect.value==='cache')
                     return;
 
                 const generation=
@@ -2109,7 +3962,7 @@ function setupConnection(){
 
             /* =========================
                SEEK REQUEST
-               ========================= */
+            ========================= */
 
             else if(msg.type==='seek_request'&&isHost){
 
@@ -2123,25 +3976,49 @@ function setupConnection(){
                    Number.isFinite(duration)&&
                    duration>0){
 
-                    remoteSyncGeneration++;
+                    if(videoModeSelect.value===CACHE_MODE){
 
-                    videoPlayer.currentTime=
-                        Math.max(
-                            0,
-                            Math.min(
-                                duration,
-                                requestedTime
-                            )
+                        cacheSyncGeneration++;
+
+                        videoPlayer.currentTime=
+                            Math.max(
+                                0,
+                                Math.min(
+                                    duration,
+                                    requestedTime
+                                )
+                            );
+
+                        videoPlayer.playbackRate=1;
+
+                        broadcastSeek(
+                            videoPlayer.currentTime
                         );
 
-                    videoPlayer.playbackRate=1;
+                        sendCacheSyncState();
 
-                    broadcastSeek(
-                        videoPlayer.currentTime
-                    );
+                    }else{
 
-                    sendStreamState();
-                    sendSyncState();
+                        remoteSyncGeneration++;
+
+                        videoPlayer.currentTime=
+                            Math.max(
+                                0,
+                                Math.min(
+                                    duration,
+                                    requestedTime
+                                )
+                            );
+
+                        videoPlayer.playbackRate=1;
+
+                        broadcastSeek(
+                            videoPlayer.currentTime
+                        );
+
+                        sendStreamState();
+                        sendSyncState();
+                    }
                 }
             }
 
@@ -2178,6 +4055,8 @@ function setupConnection(){
             syncInterval=null;
         }
 
+        cacheHostSending=false;
+
         alert(
             "З'єднання закрито"
         );
@@ -2198,7 +4077,7 @@ function setupConnection(){
 }
 
 /* =========================
-POSITION
+   POSITION
 ========================= */
 
 positionSelect.addEventListener('change',()=>{
@@ -2211,7 +4090,7 @@ positionSelect.addEventListener('change',()=>{
 });
 
 /* =========================
-VIDEO METADATA
+   VIDEO METADATA
 ========================= */
 
 videoPlayer.addEventListener('loadedmetadata',()=>{
@@ -2231,12 +4110,13 @@ videoPlayer.addEventListener('loadedmetadata',()=>{
 
             sendStreamState();
             sendSyncState();
+            sendCacheSyncState();
         }
     }
 });
 
 /* =========================
-VIDEO STYLE
+   VIDEO STYLE
 ========================= */
 
 function updateVideoStyle(){
@@ -2301,7 +4181,7 @@ if(window.visualViewport){
 }
 
 /* =========================
-PLAY / PAUSE
+   PLAY / PAUSE
 ========================= */
 
 playPauseBtn.addEventListener('click',()=>{
@@ -2319,19 +4199,32 @@ playPauseBtn.addEventListener('click',()=>{
 
         if(conn&&conn.open){
 
-            sendMessage({
+            if(videoModeSelect.value===CACHE_MODE){
 
-                type:
-                    videoPlayer.paused
-                    ?'play_request'
-                    :'pause_request'
-            });
+                sendMessage({
+
+                    type:
+                        videoPlayer.paused
+                        ?'play_request'
+                        :'pause_request'
+                });
+
+            }else{
+
+                sendMessage({
+
+                    type:
+                        videoPlayer.paused
+                        ?'play_request'
+                        :'pause_request'
+                });
+            }
         }
     }
 });
 
 /* =========================
-RESTART
+   RESTART
 ========================= */
 
 restartBtn.addEventListener('click',()=>{
@@ -2351,7 +4244,7 @@ restartBtn.addEventListener('click',()=>{
 });
 
 /* =========================
-FULLSCREEN
+   FULLSCREEN
 ========================= */
 
 fullscreenBtn.addEventListener('click',()=>{
@@ -2369,7 +4262,7 @@ fullscreenBtn.addEventListener('click',()=>{
 });
 
 /* =========================
-CONTROLS
+   CONTROLS
 ========================= */
 
 playerScreen.addEventListener('click',e=>{
@@ -2393,7 +4286,7 @@ playerScreen.addEventListener('click',e=>{
 });
 
 /* =========================
-FORMAT TIME
+   FORMAT TIME
 ========================= */
 
 function formatTime(seconds){
@@ -2429,7 +4322,7 @@ function formatTime(seconds){
 }
 
 /* =========================
-TIME UPDATE
+   TIME UPDATE
 ========================= */
 
 videoPlayer.addEventListener('timeupdate',()=>{
@@ -2460,13 +4353,12 @@ videoPlayer.addEventListener('timeupdate',()=>{
     }
 
     /*
-      ВАЖЛИВО:
-      тут БІЛЬШЕ НЕ МОЖНА брати
-      videoPlayer.currentTime для таймлайна
-      P2P-клієнта.
+      У stream режимі S10 таймлайн
+      не бере час з MediaStream.
 
-      Інакше MediaStream знову буде
-      перетягувати таймлайн назад.
+      У cache режимі також не перезаписуємо
+      час S10 його локальним currentTime,
+      тому що головним годинником залишається S25+.
     */
 
     if(!isHost&&
@@ -2498,7 +4390,7 @@ videoPlayer.addEventListener('timeupdate',()=>{
 });
 
 /* =========================
-TIMELINE
+   TIMELINE
 ========================= */
 
 function startTimelineDrag(){
@@ -2580,18 +4472,35 @@ function finishTimelineDrag(){
 
     if(isHost){
 
-        remoteSyncGeneration++;
+        if(videoModeSelect.value===CACHE_MODE){
 
-        try{
-            videoPlayer.currentTime=newTime;
-        }catch(e){}
+            cacheSyncGeneration++;
 
-        videoPlayer.playbackRate=1;
+            try{
+                videoPlayer.currentTime=newTime;
+            }catch(e){}
 
-        broadcastSeek(newTime);
+            videoPlayer.playbackRate=1;
 
-        sendStreamState();
-        sendSyncState();
+            broadcastSeek(newTime);
+
+            sendCacheSyncState();
+
+        }else{
+
+            remoteSyncGeneration++;
+
+            try{
+                videoPlayer.currentTime=newTime;
+            }catch(e){}
+
+            videoPlayer.playbackRate=1;
+
+            broadcastSeek(newTime);
+
+            sendStreamState();
+            sendSyncState();
+        }
 
     }else{
 
@@ -2626,7 +4535,7 @@ timelineRange.addEventListener(
 );
 
 /* =========================
-VOLUME
+   VOLUME
 ========================= */
 
 playerScreen.addEventListener('touchstart',e=>{
@@ -2726,7 +4635,7 @@ function showVolumeIndicator(volPercent){
 }
 
 /* =========================
-CALIBRATION CONTROLS
+   CALIBRATION CONTROLS
 ========================= */
 
 function applyShift(dx,dy){
@@ -2863,7 +4772,7 @@ document.getElementById('resetShiftBtn')
 });
 
 /* =========================
-PLAY EVENT
+   PLAY EVENT
 ========================= */
 
 videoPlayer.addEventListener('play',()=>{
@@ -2874,11 +4783,11 @@ videoPlayer.addEventListener('play',()=>{
 });
 
 /* =========================
-INITIAL
+   INITIAL
 ========================= */
 
 updateVideoStyle();
 
 </script>
 </body>
-</html>
+  </html>
