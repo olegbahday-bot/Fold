@@ -159,7 +159,6 @@ video.vid-el {
     left: 0;
     object-fit: fill;
     will-change: transform;
-    background: #000;
 }
 
 #volumeIndicator {
@@ -602,37 +601,103 @@ margin-bottom:2px;
 
 <script>
 
-const setupCard = document.getElementById('setupCard');
-const playerScreen = document.getElementById('playerScreen');
-const calibrationScreen = document.getElementById('calibrationScreen');
-const calibBox = document.getElementById('calibBox');
-const videoPlayer = document.getElementById('videoPlayer');
-const keepAwakeVideo = document.getElementById('keepAwakeVideo');
-const playerControls = document.getElementById('playerControls');
-const newVideoInput = document.getElementById('newVideoInput');
-const timelineContainer = document.getElementById('timelineContainer');
-const timelineRange = document.getElementById('timelineRange');
-const timeDisplay = document.getElementById('timeDisplay');
-const roleSelect = document.getElementById('roleSelect');
-const positionSelect = document.getElementById('positionSelect');
-const videoModeSelect = document.getElementById('videoModeSelect');
-const fileInputContainer = document.getElementById('fileInputContainer');
-const videoInput = document.getElementById('videoInput');
-const hostSection = document.getElementById('hostSection');
-const clientSection = document.getElementById('clientSection');
-const connectionStatus = document.getElementById('connectionStatus');
-const openCalibOverlayBtn = document.getElementById('openCalibOverlayBtn');
-const closeCalibBtn = document.getElementById('closeCalibBtn');
-const startHostBtn = document.getElementById('startHostBtn');
-const codeContainer = document.getElementById('codeContainer');
-const hostCodeDisplay = document.getElementById('hostCodeDisplay');
-const clientCodeInput = document.getElementById('clientCodeInput');
-const connectClientBtn = document.getElementById('connectClientBtn');
-const playPauseBtn = document.getElementById('playPauseBtn');
-const restartBtn = document.getElementById('restartBtn');
-const fullscreenBtn = document.getElementById('fullscreenBtn');
-const volumeIndicator = document.getElementById('volumeIndicator');
-const changeVideoBtn = document.getElementById('changeVideoBtn');
+const setupCard =
+document.getElementById('setupCard');
+
+const playerScreen =
+document.getElementById('playerScreen');
+
+const calibrationScreen =
+document.getElementById('calibrationScreen');
+
+const calibBox =
+document.getElementById('calibBox');
+
+const videoPlayer =
+document.getElementById('videoPlayer');
+
+const keepAwakeVideo =
+document.getElementById('keepAwakeVideo');
+
+const playerControls =
+document.getElementById('playerControls');
+
+const newVideoInput =
+document.getElementById('newVideoInput');
+
+const timelineContainer =
+document.getElementById('timelineContainer');
+
+const timelineRange =
+document.getElementById('timelineRange');
+
+const timeDisplay =
+document.getElementById('timeDisplay');
+
+const roleSelect =
+document.getElementById('roleSelect');
+
+const positionSelect =
+document.getElementById('positionSelect');
+
+const videoModeSelect =
+document.getElementById('videoModeSelect');
+
+const fileInputContainer =
+document.getElementById('fileInputContainer');
+
+const videoInput =
+document.getElementById('videoInput');
+
+const hostSection =
+document.getElementById('hostSection');
+
+const clientSection =
+document.getElementById('clientSection');
+
+const connectionStatus =
+document.getElementById('connectionStatus');
+
+const openCalibOverlayBtn =
+document.getElementById('openCalibOverlayBtn');
+
+const closeCalibBtn =
+document.getElementById('closeCalibBtn');
+
+const startHostBtn =
+document.getElementById('startHostBtn');
+
+const codeContainer =
+document.getElementById('codeContainer');
+
+const hostCodeDisplay =
+document.getElementById('hostCodeDisplay');
+
+const clientCodeInput =
+document.getElementById('clientCodeInput');
+
+const connectClientBtn =
+document.getElementById('connectClientBtn');
+
+const playPauseBtn =
+document.getElementById('playPauseBtn');
+
+const restartBtn =
+document.getElementById('restartBtn');
+
+const fullscreenBtn =
+document.getElementById('fullscreenBtn');
+
+const volumeIndicator =
+document.getElementById('volumeIndicator');
+
+const changeVideoBtn =
+document.getElementById('changeVideoBtn');
+
+
+/* =========================================================
+   GLOBAL VARIABLES
+========================================================= */
 
 let peer = null;
 let conn = null;
@@ -665,52 +730,62 @@ let touchStartX = 0;
 let touchStartVolume = 1.0;
 
 let hasSwiped = false;
+
 let volumeTimeout = null;
 
 let remoteVideoDuration = 0;
 let remoteVideoTime = 0;
 let remoteVideoPaused = true;
 
-let streamGeneration = 0;
+
+/*
+   Прапорець зміни відео.
+   Потрібен, щоб старий WebRTC-потік
+   гарантовано не залишався активним.
+*/
 let videoChangeInProgress = false;
-let waitingForNewStream = false;
-let remoteCallGeneration = 0;
 
-const STREAM_FPS = 30;
-const STREAM_MAX_BITRATE = 3000000;
 
-const peerOptions = {
-    debug: 1,
-    config: {
-        iceServers: [
-            {
-                urls: 'stun:stun.l.google.com:19302'
-            },
-            {
-                urls: 'stun:stun1.l.google.com:19302'
-            }
-        ]
-    }
-};
+/*
+   Номер версії відео.
+
+   Наприклад:
+   1 = перше відео
+   2 = друге відео
+   3 = третє відео
+
+   Це додатковий захист від старого call.
+*/
+let videoVersion = 0;
 
 
 /* =========================================================
-   SAFE SEND
+   PEERJS
 ========================================================= */
 
-function sendMessage(message) {
+const peerOptions = {
 
-    if (!conn || !conn.open) {
-        return false;
+    debug: 1,
+
+    config: {
+
+        iceServers: [
+
+            {
+                urls:
+                    'stun:stun.l.google.com:19302'
+            },
+
+            {
+                urls:
+                    'stun:stun1.l.google.com:19302'
+            }
+
+        ]
+
     }
 
-    try {
-        conn.send(JSON.stringify(message));
-        return true;
-    } catch (e) {
-        return false;
-    }
-}
+};
 
 
 /* =========================================================
@@ -733,12 +808,17 @@ async function requestWakeLock() {
             return;
         }
 
-        if (wakeLock && !wakeLock.released) {
+        if (
+            wakeLock &&
+            !wakeLock.released
+        ) {
             return;
         }
 
         wakeLock =
-            await navigator.wakeLock.request('screen');
+            await navigator.wakeLock.request(
+                'screen'
+            );
 
         wakeLock.addEventListener(
             'release',
@@ -747,20 +827,30 @@ async function requestWakeLock() {
                 wakeLock = null;
 
                 if (wakeLockRetryTimer) {
-                    clearTimeout(wakeLockRetryTimer);
+
+                    clearTimeout(
+                        wakeLockRetryTimer
+                    );
+
                 }
 
                 wakeLockRetryTimer =
-                    setTimeout(() => {
+                    setTimeout(
+                        () => {
 
-                        if (
-                            document.visibilityState === 'visible' &&
-                            playerScreen.style.display !== 'none'
-                        ) {
-                            requestWakeLock();
-                        }
+                            if (
+                                document.visibilityState === 'visible' &&
+                                playerScreen.style.display !== 'none' &&
+                                !videoPlayer.paused
+                            ) {
 
-                    }, 1000);
+                                requestWakeLock();
+
+                            }
+
+                        },
+                        1000
+                    );
 
             }
         );
@@ -768,20 +858,30 @@ async function requestWakeLock() {
     } catch (e) {
 
         if (wakeLockRetryTimer) {
-            clearTimeout(wakeLockRetryTimer);
+
+            clearTimeout(
+                wakeLockRetryTimer
+            );
+
         }
 
         wakeLockRetryTimer =
-            setTimeout(() => {
+            setTimeout(
+                () => {
 
-                if (
-                    document.visibilityState === 'visible' &&
-                    playerScreen.style.display !== 'none'
-                ) {
-                    requestWakeLock();
-                }
+                    if (
+                        document.visibilityState === 'visible' &&
+                        playerScreen.style.display !== 'none' &&
+                        !videoPlayer.paused
+                    ) {
 
-            }, 1500);
+                        requestWakeLock();
+
+                    }
+
+                },
+                1500
+            );
 
     }
 
@@ -806,8 +906,13 @@ function startAntiSleepAudio() {
 
         }
 
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume().catch(() => {});
+        if (
+            audioCtx.state === 'suspended'
+        ) {
+
+            audioCtx.resume()
+                .catch(() => {});
+
         }
 
         if (!silentOscillator) {
@@ -815,21 +920,31 @@ function startAntiSleepAudio() {
             const gain =
                 audioCtx.createGain();
 
-            gain.gain.value = 0.00001;
+            gain.gain.value =
+                0.00001;
 
             const osc =
                 audioCtx.createOscillator();
 
-            osc.frequency.value = 100;
+            osc.frequency.value =
+                100;
 
             osc.connect(gain);
-            gain.connect(audioCtx.destination);
+
+            gain.connect(
+                audioCtx.destination
+            );
 
             osc.start();
 
             silentOscillator = {
-                oscillator: osc,
-                gain: gain
+
+                oscillator:
+                    osc,
+
+                gain:
+                    gain
+
             };
 
         }
@@ -837,11 +952,14 @@ function startAntiSleepAudio() {
     } catch (e) {}
 
     requestWakeLock();
+
 }
 
 
 function startKeepAwakeVideo() {
+
     requestWakeLock();
+
 }
 
 
@@ -849,18 +967,23 @@ function stopKeepAwakeVideo() {}
 
 
 /* =========================================================
-   WAKE EVENTS
+   WAKE LOCK EVENTS
 ========================================================= */
 
 document.addEventListener(
     'visibilitychange',
     () => {
 
-        if (document.visibilityState === 'visible') {
+        if (
+            document.visibilityState === 'visible'
+        ) {
 
-            if (playerScreen.style.display !== 'none') {
+            if (
+                playerScreen.style.display !== 'none'
+            ) {
 
                 startAntiSleepAudio();
+
                 requestWakeLock();
 
             }
@@ -870,27 +993,35 @@ document.addEventListener(
     }
 );
 
+
 window.addEventListener(
     'focus',
     () => {
 
-        if (playerScreen.style.display !== 'none') {
+        if (
+            playerScreen.style.display !== 'none'
+        ) {
 
             startAntiSleepAudio();
+
             requestWakeLock();
 
         }
 
     }
 );
+
 
 window.addEventListener(
     'pageshow',
     () => {
 
-        if (playerScreen.style.display !== 'none') {
+        if (
+            playerScreen.style.display !== 'none'
+        ) {
 
             startAntiSleepAudio();
+
             requestWakeLock();
 
         }
@@ -898,26 +1029,33 @@ window.addEventListener(
     }
 );
 
+
 document.addEventListener(
     'fullscreenchange',
     () => {
 
-        setTimeout(() => {
+        setTimeout(
+            () => {
 
-            requestWakeLock();
-            updateVideoStyle();
+                requestWakeLock();
 
-        }, 300);
+                updateVideoStyle();
+
+            },
+            300
+        );
 
     }
 );
+
 
 setInterval(
     () => {
 
         if (
             playerScreen.style.display !== 'none' &&
-            document.visibilityState === 'visible'
+            document.visibilityState === 'visible' &&
+            !videoPlayer.paused
         ) {
 
             requestWakeLock();
@@ -936,37 +1074,67 @@ setInterval(
 function loadSavedSettings() {
 
     const savedScale =
-        localStorage.getItem('sp_scale');
+        localStorage.getItem(
+            'sp_scale'
+        );
 
     const savedX =
-        localStorage.getItem('sp_offsetX');
+        localStorage.getItem(
+            'sp_offsetX'
+        );
 
     const savedY =
-        localStorage.getItem('sp_offsetY');
+        localStorage.getItem(
+            'sp_offsetY'
+        );
 
     const savedPos =
-        localStorage.getItem('sp_position');
+        localStorage.getItem(
+            'sp_position'
+        );
 
-    if (savedScale !== null) {
+
+    if (
+        savedScale !== null
+    ) {
 
         videoScaleMultiplier =
             Math.max(
                 0.1,
                 Math.min(
                     5.0,
-                    parseFloat(savedScale)
+                    parseFloat(
+                        savedScale
+                    )
                 )
             );
 
     }
 
-    if (savedX !== null) {
-        videoOffsetX = parseFloat(savedX);
+
+    if (
+        savedX !== null
+    ) {
+
+        videoOffsetX =
+            parseFloat(
+                savedX
+            );
+
     }
 
-    if (savedY !== null) {
-        videoOffsetY = parseFloat(savedY);
+
+    if (
+        savedY !== null
+    ) {
+
+        videoOffsetY =
+            parseFloat(
+                savedY
+            );
+
     }
+
 
     if (
         savedPos === 'left' ||
@@ -979,6 +1147,7 @@ function loadSavedSettings() {
     }
 
 }
+
 
 loadSavedSettings();
 
@@ -1020,39 +1189,59 @@ function updateInputsVisibility() {
     const mode =
         videoModeSelect.value;
 
-    if (role === 'host') {
 
-        hostSection.classList.remove('hidden');
-        clientSection.classList.add('hidden');
+    if (
+        role === 'host'
+    ) {
 
-        fileInputContainer.style.display = 'block';
-        changeVideoBtn.style.display = 'block';
+        hostSection.classList.remove(
+            'hidden'
+        );
+
+        clientSection.classList.add(
+            'hidden'
+        );
+
+        fileInputContainer.style.display =
+            'block';
+
+        changeVideoBtn.style.display =
+            'block';
 
     } else {
 
-        hostSection.classList.add('hidden');
-        clientSection.classList.remove('hidden');
+        hostSection.classList.add(
+            'hidden'
+        );
+
+        clientSection.classList.remove(
+            'hidden'
+        );
 
         fileInputContainer.style.display =
             mode === 'stream'
             ? 'none'
             : 'block';
 
-        changeVideoBtn.style.display = 'none';
+        changeVideoBtn.style.display =
+            'none';
 
     }
 
 }
+
 
 roleSelect.addEventListener(
     'change',
     updateInputsVisibility
 );
 
+
 videoModeSelect.addEventListener(
     'change',
     updateInputsVisibility
 );
+
 
 updateInputsVisibility();
 
@@ -1063,9 +1252,13 @@ updateInputsVisibility();
 
 function requestFullscreenNow() {
 
-    if (!document.fullscreenElement) {
+    if (
+        !document.fullscreenElement
+    ) {
 
-        if (document.documentElement.requestFullscreen) {
+        if (
+            document.documentElement.requestFullscreen
+        ) {
 
             document.documentElement
                 .requestFullscreen()
@@ -1093,6 +1286,7 @@ openCalibOverlayBtn.addEventListener(
 
     }
 );
+
 
 closeCalibBtn.addEventListener(
     'click',
@@ -1129,23 +1323,27 @@ function updateCalibrationStyle() {
         combinedWidth *
         videoScaleMultiplier;
 
-    /*
-       ВАЖЛИВО:
-       Віртуальний екран завжди 16:9.
-       Тому вибір іншого відеофайлу
-       більше не змінює калібрування.
-    */
     const videoAspect =
+        (
+            videoPlayer.videoWidth &&
+            videoPlayer.videoHeight
+        )
+        ?
+        videoPlayer.videoWidth /
+        videoPlayer.videoHeight
+        :
         16 / 9;
 
     const finalHeight =
         finalWidth /
         videoAspect;
 
+
     let leftPos =
         positionSelect.value === 'left'
         ? videoOffsetX
         : videoOffsetX - pWidth;
+
 
     calibBox.style.width =
         finalWidth + 'px';
@@ -1160,7 +1358,7 @@ function updateCalibrationStyle() {
 
 
 /* =========================================================
-   VIDEO INPUT
+   VIDEO INPUT — FIRST VIDEO
 ========================================================= */
 
 videoInput.addEventListener(
@@ -1174,18 +1372,25 @@ videoInput.addEventListener(
             return;
         }
 
+
         if (localVideoBlobUrl) {
 
             try {
+
                 URL.revokeObjectURL(
                     localVideoBlobUrl
                 );
+
             } catch (err) {}
 
         }
 
+
         localVideoBlobUrl =
-            URL.createObjectURL(file);
+            URL.createObjectURL(
+                file
+            );
+
 
         videoPlayer.srcObject =
             null;
@@ -1200,6 +1405,9 @@ videoInput.addEventListener(
             1;
 
         videoPlayer.pause();
+
+        videoPlayer.load();
+
 
         connectionStatus.textContent =
             'Статус: Відео завантажено.';
@@ -1216,42 +1424,20 @@ changeVideoBtn.addEventListener(
     'click',
     () => {
 
-        if (isHost) {
-
-            newVideoInput.value = '';
-            newVideoInput.click();
-
+        if (!isHost) {
+            return;
         }
+
+        newVideoInput.value = '';
+
+        newVideoInput.click();
 
     }
 );
 
 
 /* =========================================================
-   CLOSE ACTIVE CALL
-========================================================= */
-
-function closeActiveCall() {
-
-    const call =
-        activeCall;
-
-    activeCall =
-        null;
-
-    if (call) {
-
-        try {
-            call.close();
-        } catch (e) {}
-
-    }
-
-}
-
-
-/* =========================================================
-   CLIENT CLEAR REMOTE VIDEO
+   CLEAR OLD REMOTE VIDEO
 ========================================================= */
 
 function clearRemoteVideo() {
@@ -1260,29 +1446,50 @@ function clearRemoteVideo() {
         videoPlayer.pause();
     } catch (e) {}
 
+
     try {
-        videoPlayer.srcObject = null;
+        videoPlayer.srcObject =
+            null;
     } catch (e) {}
 
-    remoteVideoDuration = 0;
-    remoteVideoTime = 0;
-    remoteVideoPaused = true;
 
-    timelineRange.value = 0;
+    try {
+        videoPlayer.removeAttribute(
+            'src'
+        );
+    } catch (e) {}
+
+
+    try {
+        videoPlayer.load();
+    } catch (e) {}
+
+
+    remoteVideoDuration =
+        0;
+
+    remoteVideoTime =
+        0;
+
+    remoteVideoPaused =
+        true;
+
+
+    timelineRange.value =
+        0;
 
     timeDisplay.textContent =
         '00:00 / 00:00';
 
+
     playPauseBtn.textContent =
         '▶ Грати';
-
-    updateVideoStyle();
 
 }
 
 
 /* =========================================================
-   HOST CHANGE VIDEO
+   CHANGE VIDEO — HOST
 ========================================================= */
 
 newVideoInput.addEventListener(
@@ -1292,229 +1499,411 @@ newVideoInput.addEventListener(
         const file =
             e.target.files[0];
 
-        if (!file || !isHost) {
+        if (
+            !file ||
+            !isHost
+        ) {
             return;
         }
 
-        const isStreaming =
-            videoModeSelect.value === 'stream';
+
+        if (
+            videoChangeInProgress
+        ) {
+            return;
+        }
+
+
+        if (
+            videoModeSelect.value !== 'stream'
+        ) {
+
+            /*
+               У LOCAL режимі другий телефон
+               має мати свій локальний файл.
+            */
+
+            if (localVideoBlobUrl) {
+
+                try {
+
+                    URL.revokeObjectURL(
+                        localVideoBlobUrl
+                    );
+
+                } catch (err) {}
+
+            }
+
+
+            localVideoBlobUrl =
+                URL.createObjectURL(
+                    file
+                );
+
+
+            videoPlayer.srcObject =
+                null;
+
+            videoPlayer.src =
+                localVideoBlobUrl;
+
+            videoPlayer.load();
+
+            videoPlayer.currentTime =
+                0;
+
+            videoPlayer.pause();
+
+            updateVideoStyle();
+
+            sendSyncState();
+
+            return;
+
+        }
+
+
+        /*
+           STREAM MODE
+        */
 
         videoChangeInProgress =
             true;
 
-        streamGeneration++;
-
-        const currentGeneration =
-            streamGeneration;
 
         /*
-           Спочатку повідомляємо Client,
-           що старий потік зараз буде замінений.
+           Збільшуємо номер версії.
         */
-        if (isStreaming) {
 
-            sendMessage({
-                type: 'video_change_start',
-                generation: currentGeneration
-            });
+        videoVersion++;
+
+
+        const currentVersion =
+            videoVersion;
+
+
+        connectionStatus.textContent =
+            'Статус: Зміна відео...';
+
+
+        /*
+           КРОК 1.
+           Повідомляємо S10, щоб він
+           НЕ залишав старий кадр.
+        */
+
+        sendMessage({
+
+            type:
+                'video_change_start',
+
+            version:
+                currentVersion
+
+        });
+
+
+        /*
+           КРОК 2.
+           Закриваємо старий WebRTC call.
+        */
+
+        if (activeCall) {
+
+            const oldCall =
+                activeCall;
+
+            activeCall =
+                null;
+
+            try {
+                oldCall.close();
+            } catch (err) {}
 
         }
 
+
         /*
-           Закриваємо старий call.
+           КРОК 3.
+           Зупиняємо старий local video.
         */
-        if (isStreaming) {
-            closeActiveCall();
-        }
 
         try {
             videoPlayer.pause();
         } catch (err) {}
 
+
+        /*
+           КРОК 4.
+           Від'єднуємо старий source.
+        */
+
         try {
-            videoPlayer.srcObject = null;
+            videoPlayer.srcObject =
+                null;
         } catch (err) {}
+
+
+        /*
+           КРОК 5.
+           Видаляємо старий Blob URL.
+        */
 
         if (localVideoBlobUrl) {
 
             try {
+
                 URL.revokeObjectURL(
                     localVideoBlobUrl
                 );
+
             } catch (err) {}
 
         }
 
+
+        /*
+           КРОК 6.
+           Створюємо новий Blob URL.
+        */
+
         localVideoBlobUrl =
-            URL.createObjectURL(file);
+            URL.createObjectURL(
+                file
+            );
+
+
+        /*
+           КРОК 7.
+           Повністю очищаємо старий
+           HTML5 video source.
+        */
+
+        videoPlayer.removeAttribute(
+            'src'
+        );
+
+        videoPlayer.load();
+
+
+        /*
+           КРОК 8.
+           Встановлюємо новий файл.
+        */
 
         videoPlayer.src =
             localVideoBlobUrl;
 
         videoPlayer.load();
 
-        videoPlayer.currentTime =
+
+        timelineRange.value =
             0;
 
-        videoPlayer.playbackRate =
-            1;
+        timeDisplay.textContent =
+            '00:00 / 00:00';
 
-        videoPlayer.pause();
 
-        updateVideoStyle();
-
-        connectionStatus.textContent =
-            'Статус: Завантаження нового відео...';
+        /*
+           КРОК 9.
+           Чекаємо loadedmetadata.
+        */
 
         await new Promise(
             (resolve) => {
 
-                let done = false;
+                let finished =
+                    false;
 
-                const finish = () => {
 
-                    if (done) {
-                        return;
-                    }
+                const done =
+                    () => {
 
-                    done = true;
+                        if (finished) {
+                            return;
+                        }
 
-                    videoPlayer.removeEventListener(
+                        finished =
+                            true;
+
+                        videoPlayer.removeEventListener(
+                            'loadedmetadata',
+                            done
+                        );
+
+                        resolve();
+
+                    };
+
+
+                if (
+                    videoPlayer.readyState >= 1
+                ) {
+
+                    done();
+
+                } else {
+
+                    videoPlayer.addEventListener(
                         'loadedmetadata',
-                        finish
+                        done
                     );
 
-                    videoPlayer.removeEventListener(
-                        'canplay',
-                        finish
-                    );
+                }
 
-                    resolve();
 
-                };
-
-                videoPlayer.addEventListener(
-                    'loadedmetadata',
-                    finish
-                );
-
-                videoPlayer.addEventListener(
-                    'canplay',
-                    finish
-                );
+                /*
+                   Запобіжник.
+                */
 
                 setTimeout(
-                    finish,
-                    6000
+                    done,
+                    3000
                 );
 
             }
         );
 
+
+        /*
+           Якщо за цей час була запущена
+           ще одна зміна відео — стару
+           операцію припиняємо.
+        */
+
         if (
-            currentGeneration !==
-            streamGeneration
+            currentVersion !== videoVersion
         ) {
+
             return;
-        }
-
-        updateVideoStyle();
-
-        if (
-            Number.isFinite(videoPlayer.duration) &&
-            videoPlayer.duration > 0
-        ) {
-
-            timelineRange.value = 0;
-
-            timeDisplay.textContent =
-                `${formatTime(0)} / ${formatTime(videoPlayer.duration)}`;
 
         }
 
-        /*
-           Client тепер знає,
-           що новий файл уже підготовлений.
-        */
-        if (isStreaming) {
 
-            sendMessage({
+        try {
 
-                type:
-                    'video_change_ready',
+            videoPlayer.currentTime =
+                0;
 
-                generation:
-                    currentGeneration,
+        } catch (err) {}
 
-                duration:
-                    Number.isFinite(videoPlayer.duration)
-                    ?
-                    videoPlayer.duration
-                    :
-                    0
-
-            });
-
-        }
-
-        /*
-           Даємо старому PeerJS call
-           завершитися.
-        */
-        await new Promise(
-            resolve =>
-                setTimeout(
-                    resolve,
-                    300
-                )
-        );
-
-        if (
-            currentGeneration !==
-            streamGeneration
-        ) {
-            return;
-        }
-
-        /*
-           Створюємо новий call.
-           startStreaming() тепер НЕ закриває
-           щойно створений/існуючий call.
-        */
-        if (isStreaming) {
-            startStreaming();
-        }
-
-        videoPlayer.muted =
-            false;
-
-        videoPlayer.volume =
-            1;
 
         videoPlayer.playbackRate =
             1;
 
+
+        updateVideoStyle();
+
+
+        /*
+           КРОК 10.
+           Повідомляємо S10, що новий файл
+           уже підготовлений на Host.
+        */
+
+        sendMessage({
+
+            type:
+                'video_change_ready',
+
+            version:
+                currentVersion,
+
+            duration:
+                Number.isFinite(
+                    videoPlayer.duration
+                )
+                ?
+                videoPlayer.duration
+                :
+                0
+
+        });
+
+
+        /*
+           КРОК 11.
+           Даємо старому WebRTC call
+           достатньо часу остаточно закритися.
+        */
+
+        await new Promise(
+            resolve =>
+                setTimeout(
+                    resolve,
+                    800
+                )
+        );
+
+
+        if (
+            currentVersion !== videoVersion
+        ) {
+
+            return;
+
+        }
+
+
+        /*
+           КРОК 12.
+           Створюємо НОВИЙ WebRTC call.
+        */
+
+        startStreaming();
+
+
+        /*
+           КРОК 13.
+           Даємо PeerJS почати передачу
+           нового відеопотоку.
+        */
+
+        await new Promise(
+            resolve =>
+                setTimeout(
+                    resolve,
+                    700
+                )
+        );
+
+
+        if (
+            currentVersion !== videoVersion
+        ) {
+
+            return;
+
+        }
+
+
+        /*
+           КРОК 14.
+           Запускаємо нове відео.
+        */
+
         videoPlayer.play()
             .catch(() => {});
+
 
         playPauseBtn.textContent =
             '❚❚ Пауза';
 
+
+        sendStreamState();
+
         startAntiSleepAudio();
+
         requestWakeLock();
 
-        setTimeout(
-            () => {
 
-                sendStreamState();
-                sendSyncState();
+        videoChangeInProgress =
+            false;
 
-                videoChangeInProgress =
-                    false;
 
-            },
-            500
-        );
+        connectionStatus.textContent =
+            'Статус: Нове відео запущено.';
 
     }
 );
@@ -1528,6 +1917,9 @@ startHostBtn.addEventListener(
     'click',
     () => {
 
+        startAntiSleepAudio();
+
+
         if (!localVideoBlobUrl) {
 
             alert(
@@ -1535,12 +1927,15 @@ startHostBtn.addEventListener(
             );
 
             return;
+
         }
 
-        isHost = true;
 
-        startAntiSleepAudio();
         requestFullscreenNow();
+
+        isHost =
+            true;
+
 
         startHostPeer();
 
@@ -1558,20 +1953,24 @@ function startHostPeer() {
 
     }
 
+
     const code =
         Math.floor(
             10000 +
             Math.random() * 90000
         ).toString();
 
+
     connectionStatus.textContent =
         'Статус: Створення кімнати...';
+
 
     peer =
         new Peer(
             'sp-' + code,
             peerOptions
         );
+
 
     peer.on(
         'open',
@@ -1590,6 +1989,7 @@ function startHostPeer() {
         }
     );
 
+
     peer.on(
         'connection',
         (connection) => {
@@ -1602,13 +2002,16 @@ function startHostPeer() {
         }
     );
 
+
     peer.on(
         'call',
         (call) => {
 
             /*
-               Host не приймає відео від Client.
+               Host не повинен приймати
+               вхідний video call.
             */
+
             try {
                 call.close();
             } catch (e) {}
@@ -1627,6 +2030,9 @@ connectClientBtn.addEventListener(
     'click',
     () => {
 
+        startAntiSleepAudio();
+
+
         if (
             videoModeSelect.value === 'local' &&
             !localVideoBlobUrl
@@ -1637,24 +2043,26 @@ connectClientBtn.addEventListener(
             );
 
             return;
+
         }
+
 
         const code =
             clientCodeInput.value.trim();
 
-        if (code.length !== 5) {
+
+        if (
+            code.length !== 5
+        ) {
 
             alert(
                 'Введіть 5-значний код!'
             );
 
             return;
+
         }
 
-        isHost = false;
-
-        startAntiSleepAudio();
-        requestFullscreenNow();
 
         if (peer) {
 
@@ -1664,13 +2072,22 @@ connectClientBtn.addEventListener(
 
         }
 
+
+        requestFullscreenNow();
+
+        isHost =
+            false;
+
+
         connectionStatus.textContent =
             'Статус: Підключення...';
+
 
         peer =
             new Peer(
                 peerOptions
             );
+
 
         peer.on(
             'open',
@@ -1686,22 +2103,23 @@ connectClientBtn.addEventListener(
             }
         );
 
+
         /*
-           Отримання WebRTC відео.
+           ОТРИМАННЯ НОВОГО ВІДЕОПОТОКУ.
         */
+
         peer.on(
             'call',
             (call) => {
 
-                const thisCall =
-                    call;
-
                 /*
-                   Старий call більше не потрібний.
+                   Якщо існує старий call —
+                   закриваємо його.
                 */
+
                 if (
                     activeCall &&
-                    activeCall !== thisCall
+                    activeCall !== call
                 ) {
 
                     try {
@@ -1710,50 +2128,58 @@ connectClientBtn.addEventListener(
 
                 }
 
+
                 activeCall =
-                    thisCall;
+                    call;
+
+
+                /*
+                   Відповідаємо на новий call.
+                */
 
                 call.answer();
+
 
                 call.on(
                     'stream',
                     (remoteStream) => {
 
                         /*
-                           Старий call ігноруємо.
+                           Дуже важливо:
+                           повністю очищаємо старий
+                           src/srcObject.
                         */
-                        if (
-                            activeCall !==
-                            thisCall
-                        ) {
 
-                            try {
-                                thisCall.close();
-                            } catch (e) {}
-
-                            return;
-
-                        }
-
-                        waitingForNewStream =
-                            false;
-
-                        /*
-                           ВАЖЛИВО:
-                           НЕ робимо videoPlayer.src = ''.
-                           Це могло давати зайвий чорний
-                           кадр на Samsung.
-                        */
                         try {
                             videoPlayer.pause();
                         } catch (e) {}
 
+
+                        try {
+                            videoPlayer.srcObject =
+                                null;
+                        } catch (e) {}
+
+
+                        try {
+                            videoPlayer.removeAttribute(
+                                'src'
+                            );
+                        } catch (e) {}
+
+
+                        try {
+                            videoPlayer.load();
+                        } catch (e) {}
+
+
+                        /*
+                           Встановлюємо НОВИЙ stream.
+                        */
+
                         videoPlayer.srcObject =
                             remoteStream;
 
-                        videoPlayer.removeAttribute(
-                            'src'
-                        );
 
                         videoPlayer.muted =
                             false;
@@ -1761,106 +2187,33 @@ connectClientBtn.addEventListener(
                         videoPlayer.volume =
                             1;
 
-                        videoPlayer.playbackRate =
-                            1;
-
-                        playerScreen.style.background =
-                            '#000';
-
-                        startAntiSleepAudio();
-                        requestWakeLock();
 
                         /*
-                           Спочатку показуємо playerScreen,
-                           потім запускаємо відео після
-                           реального отримання потоку.
+                           Запускаємо новий потік.
                         */
-                        playerScreen.style.display =
-                            'block';
 
-                        setupCard.style.display =
-                            'none';
+                        videoPlayer.play()
+                            .catch(() => {});
 
-                        updateVideoStyle();
 
-                        const startRemotePlayback =
-                            () => {
+                        startAntiSleepAudio();
 
-                                videoPlayer.play()
-                                    .then(() => {
+                        requestWakeLock();
 
-                                        playPauseBtn.textContent =
-                                            '❚❚ Пауза';
 
-                                        connectionStatus.textContent =
-                                            'Статус: Відео підключено';
-
-                                    })
-                                    .catch(() => {
-
-                                        /*
-                                           На випадок,
-                                           якщо Samsung ще
-                                           не готовий до autoplay.
-                                        */
-                                        setTimeout(
-                                            () => {
-
-                                                videoPlayer.play()
-                                                    .catch(() => {});
-
-                                            },
-                                            200
-                                        );
-
-                                    });
-
-                            };
-
-                        if (
-                            videoPlayer.readyState >= 2
-                        ) {
-
-                            startRemotePlayback();
-
-                        } else {
-
-                            videoPlayer.addEventListener(
-                                'loadedmetadata',
-                                startRemotePlayback,
-                                {
-                                    once: true
-                                }
-                            );
-
-                            videoPlayer.addEventListener(
-                                'canplay',
-                                startRemotePlayback,
-                                {
-                                    once: true
-                                }
-                            );
-
-                            /*
-                               Запасний запуск.
-                            */
-                            setTimeout(
-                                startRemotePlayback,
-                                500
-                            );
-
-                        }
+                        connectionStatus.textContent =
+                            'Статус: Нове відео отримано.';
 
                     }
                 );
+
 
                 call.on(
                     'close',
                     () => {
 
                         if (
-                            activeCall ===
-                            thisCall
+                            activeCall === call
                         ) {
 
                             activeCall =
@@ -1871,13 +2224,13 @@ connectClientBtn.addEventListener(
                     }
                 );
 
+
                 call.on(
                     'error',
                     () => {
 
                         if (
-                            activeCall ===
-                            thisCall
+                            activeCall === call
                         ) {
 
                             activeCall =
@@ -1893,6 +2246,39 @@ connectClientBtn.addEventListener(
 
     }
 );
+
+
+/* =========================================================
+   SEND MESSAGE
+========================================================= */
+
+function sendMessage(message) {
+
+    if (
+        !conn ||
+        !conn.open
+    ) {
+        return false;
+    }
+
+
+    try {
+
+        conn.send(
+            JSON.stringify(
+                message
+            )
+        );
+
+        return true;
+
+    } catch (e) {
+
+        return false;
+
+    }
+
+}
 
 
 /* =========================================================
@@ -1924,79 +2310,7 @@ function sendScreenInfo() {
 
 
 /* =========================================================
-   WEBRTC OPTIMIZATION
-========================================================= */
-
-async function optimizeOutgoingStream(call) {
-
-    try {
-
-        if (!call) {
-            return;
-        }
-
-        const pc =
-            call.peerConnection;
-
-        if (!pc) {
-            return;
-        }
-
-        const senders =
-            pc.getSenders();
-
-        const videoSender =
-            senders.find(
-                sender =>
-                    sender.track &&
-                    sender.track.kind === 'video'
-            );
-
-        if (!videoSender) {
-            return;
-        }
-
-        /*
-           НЕ застосовуємо applyConstraints()
-           до самого track.
-
-           На Samsung це могло сповільнювати
-           або нестабільно запускати captureStream.
-
-           Обмежуємо тільки WebRTC encoder.
-        */
-        try {
-
-            const parameters =
-                videoSender.getParameters();
-
-            if (
-                parameters &&
-                parameters.encodings &&
-                parameters.encodings.length
-            ) {
-
-                parameters.encodings[0].maxBitrate =
-                    STREAM_MAX_BITRATE;
-
-                parameters.encodings[0].maxFramerate =
-                    STREAM_FPS;
-
-                await videoSender.setParameters(
-                    parameters
-                );
-
-            }
-
-        } catch (e) {}
-
-    } catch (e) {}
-
-}
-
-
-/* =========================================================
-   START STREAMING
+   STREAMING
 ========================================================= */
 
 function startStreaming() {
@@ -2005,29 +2319,45 @@ function startStreaming() {
         !isHost ||
         videoModeSelect.value !== 'stream'
     ) {
+
         return;
+
     }
+
 
     if (
         !conn ||
         !conn.open
     ) {
+
         return;
+
     }
 
+
     /*
-       Якщо call уже існує,
-       НЕ закриваємо його.
+       Якщо тут залишився старий call,
+       закриваємо його.
     */
+
     if (activeCall) {
-        return;
+
+        try {
+            activeCall.close();
+        } catch (e) {}
+
+        activeCall =
+            null;
+
     }
+
 
     try {
 
         const stream =
             videoPlayer.captureStream
-            ? videoPlayer.captureStream()
+            ?
+            videoPlayer.captureStream()
             :
             (
                 videoPlayer.mozCaptureStream
@@ -2037,51 +2367,38 @@ function startStreaming() {
                 null
             );
 
+
         if (!stream) {
-
-            connectionStatus.textContent =
-                'Статус: captureStream не підтримується';
-
             return;
         }
 
-        activeCall =
+
+        /*
+           Створюємо новий PeerJS call.
+        */
+
+        const newCall =
             peer.call(
                 conn.peer,
                 stream
             );
 
-        const thisCall =
-            activeCall;
 
-        connectionStatus.textContent =
-            'Статус: Передача відео...';
+        if (!newCall) {
+            return;
+        }
 
-        setTimeout(
-            () => {
 
-                if (
-                    activeCall ===
-                    thisCall
-                ) {
+        activeCall =
+            newCall;
 
-                    optimizeOutgoingStream(
-                        thisCall
-                    );
 
-                }
-
-            },
-            500
-        );
-
-        thisCall.on(
+        newCall.on(
             'close',
             () => {
 
                 if (
-                    activeCall ===
-                    thisCall
+                    activeCall === newCall
                 ) {
 
                     activeCall =
@@ -2092,13 +2409,13 @@ function startStreaming() {
             }
         );
 
-        thisCall.on(
+
+        newCall.on(
             'error',
             () => {
 
                 if (
-                    activeCall ===
-                    thisCall
+                    activeCall === newCall
                 ) {
 
                     activeCall =
@@ -2109,15 +2426,8 @@ function startStreaming() {
             }
         );
 
-    } catch (e) {
 
-        activeCall =
-            null;
-
-        connectionStatus.textContent =
-            'Статус: Помилка запуску відеопотоку';
-
-    }
+    } catch (e) {}
 
 }
 
@@ -2134,14 +2444,23 @@ function sendStreamState() {
         !conn.open ||
         videoModeSelect.value !== 'stream'
     ) {
+
         return;
+
     }
 
+
     const duration =
-        Number(videoPlayer.duration);
+        Number(
+            videoPlayer.duration
+        );
+
 
     const time =
-        Number(videoPlayer.currentTime);
+        Number(
+            videoPlayer.currentTime
+        );
+
 
     sendMessage({
 
@@ -2150,19 +2469,20 @@ function sendStreamState() {
 
         time:
             Number.isFinite(time)
-            ? time
-            : 0,
+            ?
+            time
+            :
+            0,
 
         duration:
             Number.isFinite(duration)
-            ? duration
-            : 0,
+            ?
+            duration
+            :
+            0,
 
         paused:
-            videoPlayer.paused,
-
-        generation:
-            streamGeneration
+            videoPlayer.paused
 
     });
 
@@ -2177,8 +2497,11 @@ function sendSyncState() {
         !conn.open ||
         videoModeSelect.value !== 'local'
     ) {
+
         return;
+
     }
+
 
     sendMessage({
 
@@ -2203,8 +2526,11 @@ function broadcastSeek(time) {
         !conn ||
         !conn.open
     ) {
+
         return;
+
     }
+
 
     sendMessage({
 
@@ -2234,12 +2560,16 @@ function hostPlay() {
     videoPlayer.play()
         .catch(() => {});
 
+
     playPauseBtn.textContent =
         '❚❚ Пауза';
 
+
     startAntiSleepAudio();
 
+
     sendSyncState();
+
     sendStreamState();
 
 }
@@ -2249,16 +2579,13 @@ function hostPause() {
 
     videoPlayer.pause();
 
+
     playPauseBtn.textContent =
         '▶ Грати';
 
-    /*
-       Навіть при pause Wake Lock
-       не втрачаємо одразу.
-    */
-    requestWakeLock();
 
     sendSyncState();
+
     sendStreamState();
 
 }
@@ -2267,22 +2594,30 @@ function hostPause() {
 function hostRestart() {
 
     try {
+
         videoPlayer.currentTime =
             0;
+
     } catch (e) {}
+
 
     videoPlayer.playbackRate =
         1;
 
+
     videoPlayer.play()
         .catch(() => {});
+
 
     playPauseBtn.textContent =
         '❚❚ Пауза';
 
+
     startAntiSleepAudio();
 
+
     sendSyncState();
+
     sendStreamState();
 
 }
@@ -2300,7 +2635,9 @@ function setupConnection() {
             connectionStatus.textContent =
                 'Статус: Підключено!';
 
+
             sendScreenInfo();
+
 
             setTimeout(
                 () => {
@@ -2311,13 +2648,15 @@ function setupConnection() {
                     playerScreen.style.display =
                         'block';
 
+
                     timelineContainer.style.display =
                         'flex';
+
 
                     updateVideoStyle();
 
                     startAntiSleepAudio();
-                    requestWakeLock();
+
 
                     if (isHost) {
 
@@ -2327,35 +2666,35 @@ function setupConnection() {
                         videoPlayer.volume =
                             1;
 
+
                         videoPlayer.play()
                             .catch(() => {});
+
 
                         playPauseBtn.textContent =
                             '❚❚ Пауза';
 
-                        /*
-                           Stream запускаємо трохи
-                           після того, як connection
-                           гарантовано готовий.
-                        */
+
                         setTimeout(
                             () => {
 
                                 if (
-                                    videoModeSelect.value ===
-                                    'stream'
+                                    videoModeSelect.value === 'stream'
                                 ) {
 
                                     startStreaming();
 
                                 }
 
+
                                 sendStreamState();
+
                                 sendSyncState();
 
                             },
-                            300
+                            700
                         );
+
 
                         if (syncInterval) {
 
@@ -2364,6 +2703,7 @@ function setupConnection() {
                             );
 
                         }
+
 
                         syncInterval =
                             setInterval(
@@ -2375,8 +2715,7 @@ function setupConnection() {
                                     ) {
 
                                         if (
-                                            videoModeSelect.value ===
-                                            'stream'
+                                            videoModeSelect.value === 'stream'
                                         ) {
 
                                             sendStreamState();
@@ -2390,50 +2729,26 @@ function setupConnection() {
                                     }
 
                                 },
-                                500
+                                300
                             );
 
                     } else {
 
-                        /*
-                           Client не показує старе
-                           локальне відео в stream mode.
-                           Чекає реальний WebRTC stream.
-                        */
-                        if (
-                            videoModeSelect.value ===
-                            'stream'
-                        ) {
-
-                            waitingForNewStream =
-                                true;
-
-                            connectionStatus.textContent =
-                                'Статус: Очікування відеопотоку...';
-
-                            playPauseBtn.textContent =
-                                '▶ Грати';
-
-                        } else {
-
-                            videoPlayer.play()
-                                .catch(() => {});
-
-                            playPauseBtn.textContent =
-                                '❚❚ Пауза';
-
-                        }
+                        playPauseBtn.textContent =
+                            '▶ Грати';
 
                     }
 
                 },
-                150
+                300
             );
 
         };
 
 
-    if (conn.open) {
+    if (
+        conn.open
+    ) {
 
         handleReady();
 
@@ -2461,90 +2776,75 @@ function setupConnection() {
                     data;
 
 
-                /* =================================================
+                /* =========================================
                    SCREEN INFO
-                ================================================= */
+                ========================================= */
 
                 if (
                     msg.type === 'screen_info'
                 ) {
 
                     partnerWidth =
-                        Number(msg.width) || 0;
+                        Number(
+                            msg.width
+                        ) || 0;
 
                     partnerHeight =
-                        Number(msg.height) || 0;
+                        Number(
+                            msg.height
+                        ) || 0;
+
 
                     updateVideoStyle();
 
-                    /*
-                       Відповідь тільки один раз
-                       фактично потрібна для взаємного
-                       обміну шириною.
-                    */
+
                     if (
-                        !isHost
+                        isHost
                     ) {
+
                         sendScreenInfo();
+
                     }
 
                 }
 
 
-                /* =================================================
+                /* =========================================
                    VIDEO CHANGE START
-                ================================================= */
+                ========================================= */
 
                 else if (
-                    msg.type ===
-                    'video_change_start' &&
+                    msg.type === 'video_change_start' &&
                     !isHost
                 ) {
 
-                    const generation =
-                        Number(msg.generation) || 0;
-
-                    remoteCallGeneration =
-                        generation;
-
-                    waitingForNewStream =
-                        true;
-
                     /*
-                       Не даємо S10 заснути
-                       під час перемикання.
+                       S10 одразу прибирає
+                       старий кадр.
                     */
-                    startAntiSleepAudio();
-                    requestWakeLock();
-
-                    closeActiveCall();
 
                     clearRemoteVideo();
 
+
                     connectionStatus.textContent =
-                        'Статус: Очікування нового відео...';
+                        'Статус: Головний телефон змінює відео...';
 
                 }
 
 
-                /* =================================================
+                /* =========================================
                    VIDEO CHANGE READY
-                ================================================= */
+                ========================================= */
 
                 else if (
-                    msg.type ===
-                    'video_change_ready' &&
+                    msg.type === 'video_change_ready' &&
                     !isHost
                 ) {
 
-                    const generation =
-                        Number(msg.generation) || 0;
-
-                    remoteCallGeneration =
-                        generation;
-
                     remoteVideoDuration =
-                        Number(msg.duration) || 0;
+                        Number(
+                            msg.duration
+                        ) || 0;
 
                     remoteVideoTime =
                         0;
@@ -2552,54 +2852,43 @@ function setupConnection() {
                     remoteVideoPaused =
                         false;
 
-                    startAntiSleepAudio();
-                    requestWakeLock();
 
-                    if (
-                        remoteVideoDuration > 0
-                    ) {
+                    timelineRange.value =
+                        0;
 
-                        timelineRange.value =
-                            0;
 
-                        timeDisplay.textContent =
-                            `00:00 / ${formatTime(remoteVideoDuration)}`;
+                    timeDisplay.textContent =
+                        `00:00 / ${formatTime(remoteVideoDuration)}`;
 
-                    }
 
                     connectionStatus.textContent =
-                        'Статус: Нове відео готове, очікування потоку...';
+                        'Статус: Очікування нового відеопотоку...';
 
                 }
 
 
-                /* =================================================
+                /* =========================================
                    STREAM STATE
-                ================================================= */
+                ========================================= */
 
                 else if (
                     msg.type === 'stream_state' &&
                     !isHost
                 ) {
 
-                    /*
-                       Під час заміни файлу не приймаємо
-                       старий стан.
-                    */
-                    if (
-                        waitingForNewStream
-                    ) {
-                        return;
-                    }
-
                     remoteVideoTime =
-                        Number(msg.time) || 0;
+                        Number(
+                            msg.time
+                        ) || 0;
 
                     remoteVideoDuration =
-                        Number(msg.duration) || 0;
+                        Number(
+                            msg.duration
+                        ) || 0;
 
                     remoteVideoPaused =
                         !!msg.paused;
+
 
                     if (
                         remoteVideoDuration > 0 &&
@@ -2612,6 +2901,7 @@ function setupConnection() {
                                 remoteVideoDuration
                             ) * 100;
 
+
                         timelineRange.value =
                             Math.max(
                                 0,
@@ -2621,10 +2911,12 @@ function setupConnection() {
                                 )
                             );
 
+
                         timeDisplay.textContent =
                             `${formatTime(remoteVideoTime)} / ${formatTime(remoteVideoDuration)}`;
 
                     }
+
 
                     if (
                         remoteVideoPaused
@@ -2634,8 +2926,6 @@ function setupConnection() {
 
                         playPauseBtn.textContent =
                             '▶ Грати';
-
-                        requestWakeLock();
 
                     } else {
 
@@ -2648,10 +2938,13 @@ function setupConnection() {
 
                         }
 
+
                         playPauseBtn.textContent =
                             '❚❚ Пауза';
 
+
                         startAntiSleepAudio();
+
                         requestWakeLock();
 
                     }
@@ -2659,9 +2952,9 @@ function setupConnection() {
                 }
 
 
-                /* =================================================
+                /* =========================================
                    LOCAL SYNC
-                ================================================= */
+                ========================================= */
 
                 else if (
                     msg.type === 'sync_state' &&
@@ -2669,26 +2962,49 @@ function setupConnection() {
                     videoModeSelect.value === 'local'
                 ) {
 
-                    if (videoPlayer.srcObject) {
+                    if (
+                        videoPlayer.srcObject
+                    ) {
+
                         return;
+
                     }
 
-                    if (isDraggingTimeline) {
+
+                    if (
+                        isDraggingTimeline
+                    ) {
+
                         return;
+
                     }
+
 
                     const hostTime =
-                        Number(msg.time);
+                        Number(
+                            msg.time
+                        );
 
-                    if (!Number.isFinite(hostTime)) {
+
+                    if (
+                        !Number.isFinite(
+                            hostTime
+                        )
+                    ) {
+
                         return;
+
                     }
+
 
                     const current =
                         videoPlayer.currentTime;
 
+
                     const diff =
-                        current - hostTime;
+                        current -
+                        hostTime;
+
 
                     if (
                         Math.abs(diff) > 0.25
@@ -2704,6 +3020,7 @@ function setupConnection() {
 
                         } catch (e) {}
 
+
                         videoPlayer.playbackRate =
                             1;
 
@@ -2715,6 +3032,7 @@ function setupConnection() {
                             1 -
                             diff * 0.08;
 
+
                         rate =
                             Math.max(
                                 0.97,
@@ -2723,6 +3041,7 @@ function setupConnection() {
                                     rate
                                 )
                             );
+
 
                         videoPlayer.playbackRate =
                             rate;
@@ -2734,7 +3053,10 @@ function setupConnection() {
 
                     }
 
-                    if (msg.paused) {
+
+                    if (
+                        msg.paused
+                    ) {
 
                         videoPlayer.pause();
 
@@ -2746,10 +3068,13 @@ function setupConnection() {
                         videoPlayer.play()
                             .catch(() => {});
 
+
                         playPauseBtn.textContent =
                             '❚❚ Пауза';
 
+
                         startAntiSleepAudio();
+
                         requestWakeLock();
 
                     }
@@ -2757,23 +3082,27 @@ function setupConnection() {
                 }
 
 
-                /* =================================================
+                /* =========================================
                    SEEK
-                ================================================= */
+                ========================================= */
 
                 else if (
                     msg.type === 'seek'
                 ) {
 
-                    if (!isDraggingTimeline) {
+                    if (
+                        !isDraggingTimeline
+                    ) {
 
                         if (
-                            videoModeSelect.value ===
-                            'stream'
+                            videoModeSelect.value === 'stream'
                         ) {
 
                             remoteVideoTime =
-                                Number(msg.time) || 0;
+                                Number(
+                                    msg.time
+                                ) || 0;
+
 
                             if (
                                 remoteVideoDuration > 0
@@ -2784,6 +3113,7 @@ function setupConnection() {
                                         remoteVideoTime /
                                         remoteVideoDuration
                                     ) * 100;
+
 
                                 timeDisplay.textContent =
                                     `${formatTime(remoteVideoTime)} / ${formatTime(remoteVideoDuration)}`;
@@ -2799,7 +3129,9 @@ function setupConnection() {
                                 videoPlayer.currentTime =
                                     Math.max(
                                         0,
-                                        Number(msg.time) || 0
+                                        Number(
+                                            msg.time
+                                        ) || 0
                                     );
 
                             } catch (e) {}
@@ -2811,9 +3143,9 @@ function setupConnection() {
                 }
 
 
-                /* =================================================
+                /* =========================================
                    SEEK REQUEST
-                ================================================= */
+                ========================================= */
 
                 else if (
                     msg.type === 'seek_request' &&
@@ -2821,14 +3153,24 @@ function setupConnection() {
                 ) {
 
                     const requestedTime =
-                        Number(msg.time);
+                        Number(
+                            msg.time
+                        );
+
 
                     const duration =
-                        Number(videoPlayer.duration);
+                        Number(
+                            videoPlayer.duration
+                        );
+
 
                     if (
-                        Number.isFinite(requestedTime) &&
-                        Number.isFinite(duration) &&
+                        Number.isFinite(
+                            requestedTime
+                        ) &&
+                        Number.isFinite(
+                            duration
+                        ) &&
                         duration > 0
                     ) {
 
@@ -2841,14 +3183,18 @@ function setupConnection() {
                                 )
                             );
 
+
                         videoPlayer.playbackRate =
                             1;
+
 
                         broadcastSeek(
                             videoPlayer.currentTime
                         );
 
+
                         sendStreamState();
+
                         sendSyncState();
 
                     }
@@ -2856,9 +3202,9 @@ function setupConnection() {
                 }
 
 
-                /* =================================================
+                /* =========================================
                    PLAY REQUEST
-                ================================================= */
+                ========================================= */
 
                 else if (
                     msg.type === 'play_request' &&
@@ -2870,9 +3216,9 @@ function setupConnection() {
                 }
 
 
-                /* =================================================
+                /* =========================================
                    PAUSE REQUEST
-                ================================================= */
+                ========================================= */
 
                 else if (
                     msg.type === 'pause_request' &&
@@ -2884,9 +3230,9 @@ function setupConnection() {
                 }
 
 
-                /* =================================================
+                /* =========================================
                    RESTART REQUEST
-                ================================================= */
+                ========================================= */
 
                 else if (
                     msg.type === 'restart_request' &&
@@ -2918,9 +3264,11 @@ function setupConnection() {
 
             }
 
+
             alert(
                 "З'єднання закрито"
             );
+
 
             location.reload();
 
@@ -2958,6 +3306,7 @@ videoPlayer.addEventListener(
 
         updateVideoStyle();
 
+
         if (
             isHost &&
             Number.isFinite(
@@ -2969,10 +3318,13 @@ videoPlayer.addEventListener(
             timelineRange.value =
                 0;
 
+
             timeDisplay.textContent =
                 `${formatTime(videoPlayer.currentTime)} / ${formatTime(videoPlayer.duration)}`;
 
+
             sendStreamState();
+
             sendSyncState();
 
         }
@@ -2990,29 +3342,39 @@ function updateVideoStyle() {
     const myWidth =
         window.innerWidth;
 
+
     const pWidth =
         partnerWidth > 0
         ? partnerWidth
         : myWidth;
 
-    /*
-       Завжди 16:9.
-       Вибір іншого відео не змінює
-       розмір віртуального Fold-екрана.
-    */
+
     const videoAspect =
+        (
+            videoPlayer.videoWidth &&
+            videoPlayer.videoHeight
+        )
+        ?
+        videoPlayer.videoWidth /
+        videoPlayer.videoHeight
+        :
         16 / 9;
 
+
     const combinedWidth =
-        myWidth + pWidth;
+        myWidth +
+        pWidth;
+
 
     const finalWidth =
         combinedWidth *
         videoScaleMultiplier;
 
+
     const finalHeight =
         finalWidth /
         videoAspect;
+
 
     let leftPos =
         positionSelect.value === 'left'
@@ -3021,11 +3383,14 @@ function updateVideoStyle() {
         :
         videoOffsetX - pWidth;
 
+
     videoPlayer.style.width =
         finalWidth + 'px';
 
+
     videoPlayer.style.height =
         finalHeight + 'px';
+
 
     videoPlayer.style.transform =
         `translate3d(${leftPos}px,${videoOffsetY}px,0)`;
@@ -3038,7 +3403,10 @@ window.addEventListener(
     updateVideoStyle
 );
 
-if (window.visualViewport) {
+
+if (
+    window.visualViewport
+) {
 
     window.visualViewport.addEventListener(
         'resize',
@@ -3058,12 +3426,19 @@ playPauseBtn.addEventListener(
 
         startAntiSleepAudio();
 
+
         if (isHost) {
 
-            if (videoPlayer.paused) {
+            if (
+                videoPlayer.paused
+            ) {
+
                 hostPlay();
+
             } else {
+
                 hostPause();
+
             }
 
         } else {
@@ -3102,6 +3477,7 @@ restartBtn.addEventListener(
 
         startAntiSleepAudio();
 
+
         if (isHost) {
 
             hostRestart();
@@ -3136,7 +3512,9 @@ fullscreenBtn.addEventListener(
     'click',
     () => {
 
-        if (!document.fullscreenElement) {
+        if (
+            !document.fullscreenElement
+        ) {
 
             document.documentElement
                 .requestFullscreen()
@@ -3162,7 +3540,10 @@ playerScreen.addEventListener(
 
         startAntiSleepAudio();
 
-        if (hasSwiped) {
+
+        if (
+            hasSwiped
+        ) {
 
             hasSwiped =
                 false;
@@ -3170,6 +3551,7 @@ playerScreen.addEventListener(
             return;
 
         }
+
 
         if (
             !playerControls.contains(
@@ -3205,22 +3587,28 @@ function formatTime(seconds) {
 
     }
 
+
     const hours =
         Math.floor(
             seconds / 3600
         );
+
 
     const mins =
         Math.floor(
             (seconds % 3600) / 60
         );
 
+
     const secs =
         Math.floor(
             seconds % 60
         );
 
-    if (hours > 0) {
+
+    if (
+        hours > 0
+    ) {
 
         return (
             String(hours).padStart(2,'0') +
@@ -3231,6 +3619,7 @@ function formatTime(seconds) {
         );
 
     }
+
 
     return (
         String(mins).padStart(2,'0') +
@@ -3249,6 +3638,10 @@ videoPlayer.addEventListener(
     'timeupdate',
     () => {
 
+        /*
+           HOST
+        */
+
         if (
             isHost &&
             Number.isFinite(
@@ -3257,13 +3650,16 @@ videoPlayer.addEventListener(
             videoPlayer.duration > 0
         ) {
 
-            if (!isDraggingTimeline) {
+            if (
+                !isDraggingTimeline
+            ) {
 
                 const progress =
                     (
                         videoPlayer.currentTime /
                         videoPlayer.duration
                     ) * 100;
+
 
                 timelineRange.value =
                     Math.max(
@@ -3274,12 +3670,18 @@ videoPlayer.addEventListener(
                         )
                     );
 
+
                 timeDisplay.textContent =
                     `${formatTime(videoPlayer.currentTime)} / ${formatTime(videoPlayer.duration)}`;
 
             }
 
         }
+
+
+        /*
+           S10 LOCAL
+        */
 
         if (
             !isHost &&
@@ -3291,13 +3693,16 @@ videoPlayer.addEventListener(
             videoPlayer.duration > 0
         ) {
 
-            if (!isDraggingTimeline) {
+            if (
+                !isDraggingTimeline
+            ) {
 
                 const progress =
                     (
                         videoPlayer.currentTime /
                         videoPlayer.duration
                     ) * 100;
+
 
                 timelineRange.value =
                     Math.max(
@@ -3307,6 +3712,7 @@ videoPlayer.addEventListener(
                             progress
                         )
                     );
+
 
                 timeDisplay.textContent =
                     `${formatTime(videoPlayer.currentTime)} / ${formatTime(videoPlayer.duration)}`;
@@ -3324,18 +3730,24 @@ videoPlayer.addEventListener(
 ========================================================= */
 
 function startTimelineDrag() {
-    isDraggingTimeline = true;
+
+    isDraggingTimeline =
+        true;
+
 }
+
 
 timelineRange.addEventListener(
     'pointerdown',
     startTimelineDrag
 );
 
+
 timelineRange.addEventListener(
     'mousedown',
     startTimelineDrag
 );
+
 
 timelineRange.addEventListener(
     'touchstart',
@@ -3345,11 +3757,14 @@ timelineRange.addEventListener(
     }
 );
 
+
 timelineRange.addEventListener(
     'input',
     () => {
 
-        let duration = 0;
+        let duration =
+            0;
+
 
         if (
             Number.isFinite(
@@ -3370,9 +3785,15 @@ timelineRange.addEventListener(
 
         }
 
-        if (duration <= 0) {
+
+        if (
+            duration <= 0
+        ) {
+
             return;
+
         }
+
 
         const newTime =
             (
@@ -3381,6 +3802,7 @@ timelineRange.addEventListener(
                 ) /
                 100
             ) * duration;
+
 
         timeDisplay.textContent =
             `${formatTime(newTime)} / ${formatTime(duration)}`;
@@ -3391,7 +3813,9 @@ timelineRange.addEventListener(
 
 function finishTimelineDrag() {
 
-    let duration = 0;
+    let duration =
+        0;
+
 
     if (
         Number.isFinite(
@@ -3412,7 +3836,10 @@ function finishTimelineDrag() {
 
     }
 
-    if (duration <= 0) {
+
+    if (
+        duration <= 0
+    ) {
 
         isDraggingTimeline =
             false;
@@ -3421,6 +3848,7 @@ function finishTimelineDrag() {
 
     }
 
+
     const newTime =
         (
             Number(
@@ -3428,6 +3856,7 @@ function finishTimelineDrag() {
             ) /
             100
         ) * duration;
+
 
     if (isHost) {
 
@@ -3438,14 +3867,18 @@ function finishTimelineDrag() {
 
         } catch (e) {}
 
+
         videoPlayer.playbackRate =
             1;
+
 
         broadcastSeek(
             newTime
         );
 
+
         sendStreamState();
+
         sendSyncState();
 
     } else {
@@ -3469,20 +3902,24 @@ function finishTimelineDrag() {
 
     }
 
+
     isDraggingTimeline =
         false;
 
 }
+
 
 timelineRange.addEventListener(
     'pointerup',
     finishTimelineDrag
 );
 
+
 timelineRange.addEventListener(
     'mouseup',
     finishTimelineDrag
 );
+
 
 timelineRange.addEventListener(
     'touchend',
@@ -3503,27 +3940,37 @@ playerScreen.addEventListener(
 
         startAntiSleepAudio();
 
+
         if (
             playerControls.contains(
                 e.target
             )
         ) {
+
             return;
+
         }
 
-        if (e.touches.length === 1) {
+
+        if (
+            e.touches.length === 1
+        ) {
 
             isSwipingVolume =
                 true;
 
+
             touchStartY =
                 e.touches[0].clientY;
+
 
             touchStartX =
                 e.touches[0].clientX;
 
+
             touchStartVolume =
                 videoPlayer.volume;
+
 
             hasSwiped =
                 false;
@@ -3536,6 +3983,7 @@ playerScreen.addEventListener(
     }
 );
 
+
 playerScreen.addEventListener(
     'touchmove',
     (e) => {
@@ -3544,16 +3992,21 @@ playerScreen.addEventListener(
             !isSwipingVolume ||
             e.touches.length !== 1
         ) {
+
             return;
+
         }
+
 
         const diffY =
             touchStartY -
             e.touches[0].clientY;
 
+
         const diffX =
             touchStartX -
             e.touches[0].clientX;
+
 
         if (
             Math.abs(diffY) > 10 ||
@@ -3565,7 +4018,10 @@ playerScreen.addEventListener(
 
         }
 
-        if (hasSwiped) {
+
+        if (
+            hasSwiped
+        ) {
 
             const newVolume =
                 Math.max(
@@ -3580,8 +4036,10 @@ playerScreen.addEventListener(
                     )
                 );
 
+
             videoPlayer.volume =
                 newVolume;
+
 
             showVolumeIndicator(
                 Math.round(
@@ -3597,6 +4055,7 @@ playerScreen.addEventListener(
     }
 );
 
+
 playerScreen.addEventListener(
     'touchend',
     () => {
@@ -3608,17 +4067,28 @@ playerScreen.addEventListener(
 );
 
 
-function showVolumeIndicator(volPercent) {
+function showVolumeIndicator(
+    volPercent
+) {
 
     volumeIndicator.textContent =
         `🔊 Гучність: ${volPercent}%`;
 
+
     volumeIndicator.style.display =
         'block';
 
-    if (volumeTimeout) {
-        clearTimeout(volumeTimeout);
+
+    if (
+        volumeTimeout
+    ) {
+
+        clearTimeout(
+            volumeTimeout
+        );
+
     }
+
 
     volumeTimeout =
         setTimeout(
@@ -3638,19 +4108,30 @@ function showVolumeIndicator(volPercent) {
    CALIBRATION CONTROLS
 ========================================================= */
 
-function applyShift(dx,dy) {
+function applyShift(
+    dx,
+    dy
+) {
 
-    videoOffsetX += dx;
-    videoOffsetY += dy;
+    videoOffsetX +=
+        dx;
+
+    videoOffsetY +=
+        dy;
+
 
     updateVideoStyle();
+
     updateCalibrationStyle();
+
     saveSettings();
 
 }
 
 
-function applyScale(ds) {
+function applyScale(
+    ds
+) {
 
     videoScaleMultiplier =
         Math.max(
@@ -3661,8 +4142,11 @@ function applyScale(ds) {
             )
         );
 
+
     updateVideoStyle();
+
     updateCalibrationStyle();
+
     saveSettings();
 
 }
@@ -3680,43 +4164,65 @@ document.getElementById(
     'calibShiftUp'
 ).addEventListener(
     'click',
-    () => applyShift(0,-4)
+    () => applyShift(
+        0,
+        -4
+    )
 );
+
 
 document.getElementById(
     'calibShiftDown'
 ).addEventListener(
     'click',
-    () => applyShift(0,4)
+    () => applyShift(
+        0,
+        4
+    )
 );
+
 
 document.getElementById(
     'calibShiftLeft'
 ).addEventListener(
     'click',
-    () => applyShift(-4,0)
+    () => applyShift(
+        -4,
+        0
+    )
 );
+
 
 document.getElementById(
     'calibShiftRight'
 ).addEventListener(
     'click',
-    () => applyShift(4,0)
+    () => applyShift(
+        4,
+        0
+    )
 );
+
 
 document.getElementById(
     'calibScalePlus'
 ).addEventListener(
     'click',
-    () => applyScale(0.02)
+    () => applyScale(
+        0.02
+    )
 );
+
 
 document.getElementById(
     'calibScaleMinus'
 ).addEventListener(
     'click',
-    () => applyScale(-0.02)
+    () => applyScale(
+        -0.02
+    )
 );
+
 
 document.getElementById(
     'calibReset'
@@ -3724,12 +4230,20 @@ document.getElementById(
     'click',
     () => {
 
-        videoOffsetX = 0;
-        videoOffsetY = 0;
-        videoScaleMultiplier = 1;
+        videoOffsetX =
+            0;
+
+        videoOffsetY =
+            0;
+
+        videoScaleMultiplier =
+            1;
+
 
         updateVideoStyle();
+
         updateCalibrationStyle();
+
         saveSettings();
 
     }
@@ -3740,43 +4254,65 @@ document.getElementById(
     'shiftUpBtn'
 ).addEventListener(
     'click',
-    () => applyShift(0,-4)
+    () => applyShift(
+        0,
+        -4
+    )
 );
+
 
 document.getElementById(
     'shiftDownBtn'
 ).addEventListener(
     'click',
-    () => applyShift(0,4)
+    () => applyShift(
+        0,
+        4
+    )
 );
+
 
 document.getElementById(
     'shiftLeftBtn'
 ).addEventListener(
     'click',
-    () => applyShift(-4,0)
+    () => applyShift(
+        -4,
+        0
+    )
 );
+
 
 document.getElementById(
     'shiftRightBtn'
 ).addEventListener(
     'click',
-    () => applyShift(4,0)
+    () => applyShift(
+        4,
+        0
+    )
 );
+
 
 document.getElementById(
     'scalePlusBtn'
 ).addEventListener(
     'click',
-    () => applyScale(0.02)
+    () => applyScale(
+        0.02
+    )
 );
+
 
 document.getElementById(
     'scaleMinusBtn'
 ).addEventListener(
     'click',
-    () => applyScale(-0.02)
+    () => applyScale(
+        -0.02
+    )
 );
+
 
 document.getElementById(
     'resetShiftBtn'
@@ -3784,12 +4320,20 @@ document.getElementById(
     'click',
     () => {
 
-        videoOffsetX = 0;
-        videoOffsetY = 0;
-        videoScaleMultiplier = 1;
+        videoOffsetX =
+            0;
+
+        videoOffsetY =
+            0;
+
+        videoScaleMultiplier =
+            1;
+
 
         updateVideoStyle();
+
         updateCalibrationStyle();
+
         saveSettings();
 
     }
@@ -3805,6 +4349,7 @@ videoPlayer.addEventListener(
     () => {
 
         startAntiSleepAudio();
+
         requestWakeLock();
 
     }
@@ -3820,4 +4365,4 @@ updateVideoStyle();
 </script>
 
 </body>
-    </html>
+</html>
