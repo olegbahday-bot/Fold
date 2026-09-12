@@ -2,786 +2,930 @@
 <html lang="uk">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>ScreenParty Sync Pro</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
 
 <style>
-body {
-    margin: 0;
-    background: #121212;
-    color: #fff;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
-    padding: 10px;
+* {
     box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    color: #fff;
+    font-family: Arial, sans-serif;
     overflow: hidden;
 }
 
-.card {
-    background: #1e1e1e;
-    padding: 20px;
-    border-radius: 12px;
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#app {
     width: 100%;
-    max-width: 400px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    height: 100%;
+    position: relative;
+    background: #000;
+    overflow: hidden;
+}
+
+video {
+    position: absolute;
+    background: #000;
+    object-fit: fill;
+    transform-origin: center center;
+}
+
+#videoPlayer {
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+}
+
+#startScreen {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    background: #111;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.panel {
+    width: min(520px, 100%);
+    background: #1c1c1c;
+    border-radius: 18px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.5);
+}
+
+h1 {
+    margin: 0 0 18px;
     text-align: center;
-    z-index: 10;
+    font-size: 25px;
 }
 
 h2 {
-    margin-top: 0;
-    font-size: 20px;
-    color: #4CAF50;
+    margin: 15px 0 8px;
+    font-size: 18px;
 }
 
 label {
     display: block;
-    margin-top: 10px;
-    font-size: 13px;
-    color: #bbb;
-    text-align: left;
+    margin: 9px 0 5px;
+    font-size: 14px;
+    color: #ccc;
 }
 
-select,
 input,
+select,
 button {
     width: 100%;
-    padding: 10px;
-    margin-top: 5px;
-    background: #2a2a2a;
-    color: #fff;
-    border: 1px solid #444;
-    border-radius: 8px;
-    font-size: 14px;
-    box-sizing: border-box;
-}
-
-input[type="text"] {
-    letter-spacing: 4px;
-    text-align: center;
-    font-weight: bold;
+    min-height: 44px;
+    border: 0;
+    border-radius: 10px;
+    padding: 9px 12px;
     font-size: 16px;
 }
 
-button {
-    background: #4CAF50;
-    border: none;
-    font-weight: bold;
-    cursor: pointer;
-    margin-top: 10px;
-    transition: background 0.2s;
+input,
+select {
+    background: #303030;
+    color: #fff;
 }
 
-button:hover {
-    background: #45a049;
+button {
+    background: #2979ff;
+    color: white;
+    font-weight: bold;
+    margin-top: 8px;
+}
+
+button:active {
+    transform: scale(.98);
+}
+
+button.secondary {
+    background: #444;
+}
+
+button.danger {
+    background: #b3261e;
+}
+
+.row {
+    display: flex;
+    gap: 8px;
+}
+
+.row > * {
+    flex: 1;
+}
+
+.roleButtons {
+    display: flex;
+    gap: 8px;
+}
+
+.roleButtons button {
+    background: #333;
+}
+
+.roleButtons button.active {
+    background: #2979ff;
+}
+
+#status {
+    text-align: center;
+    margin-top: 12px;
+    min-height: 22px;
+    color: #9ad0ff;
+    font-size: 14px;
+}
+
+#mainUI {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    pointer-events: none;
+}
+
+#controls {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    padding: 10px;
+    border-radius: 14px;
+    background: rgba(0,0,0,.72);
+    backdrop-filter: blur(8px);
+    pointer-events: auto;
+    transition: opacity .25s;
+}
+
+#controls.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.controlRow {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.controlRow button {
+    width: auto;
+    min-width: 42px;
+    margin: 0;
+    padding: 7px 10px;
+    min-height: 38px;
+}
+
+#timeline {
+    width: 100%;
+    height: 30px;
+    margin: 0;
+    padding: 0;
+    accent-color: #2979ff;
+}
+
+#timeText {
+    text-align: center;
+    font-size: 12px;
+    color: #ddd;
+    margin-top: 2px;
+}
+
+#calibration {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    max-height: calc(100% - 100px);
+    overflow-y: auto;
+    padding: 12px;
+    background: rgba(0,0,0,.78);
+    border-radius: 14px;
+    pointer-events: auto;
+    display: none;
+    backdrop-filter: blur(8px);
+}
+
+#calibration.show {
+    display: block;
+}
+
+.calRow {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 7px;
+}
+
+.calRow span {
+    width: 90px;
+    font-size: 13px;
+}
+
+.calRow button {
+    width: auto;
+    flex: 1;
+    margin: 0;
+    min-height: 38px;
+}
+
+.calValue {
+    width: 60px;
+    text-align: center;
+}
+
+#connectionInfo {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    background: rgba(0,0,0,.65);
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-size: 12px;
+    color: #ddd;
+    pointer-events: none;
+}
+
+#hiddenAudio {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: .01;
+    pointer-events: none;
+}
+
+.small {
+    color: #aaa;
+    font-size: 12px;
+    line-height: 1.4;
+    margin-top: 8px;
 }
 
 .hidden {
     display: none !important;
-}
-
-.code-display {
-    background: #fff;
-    color: #000;
-    font-size: 28px;
-    font-weight: bold;
-    letter-spacing: 6px;
-    padding: 10px;
-    border-radius: 8px;
-    margin-top: 8px;
-    display: inline-block;
-}
-
-/* КАЛІБРУВАННЯ */
-
-#calibrationScreen {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0,0,0,0.85);
-    display: none;
-    z-index: 150;
-}
-
-.calib-box {
-    position: absolute;
-    top: 0;
-    left: 0;
-    border: 2px dashed #4CAF50;
-    box-sizing: border-box;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background: rgba(76, 175, 80, 0.08);
-    will-change: transform;
-}
-
-.calib-circle {
-    width: 140px;
-    height: 140px;
-    border: 3px solid #FFEB3B;
-    border-radius: 50%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    color: #FFEB3B;
-    font-size: 12px;
-    font-weight: bold;
-    text-align: center;
-    background: rgba(255, 235, 59, 0.15);
-}
-
-/* ВІДЕО */
-
-#playerScreen {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: #000;
-    display: none;
-    z-index: 100;
-}
-
-video.vid-el {
-    position: absolute;
-    top: 0;
-    left: 0;
-    object-fit: fill;
-    will-change: transform;
-}
-
-/* ГУЧНІСТЬ */
-
-#volumeIndicator {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.85);
-    color: #fff;
-    padding: 14px 24px;
-    border-radius: 10px;
-    font-size: 18px;
-    font-weight: bold;
-    z-index: 300;
-    display: none;
-    pointer-events: none;
-}
-
-/* ПАНЕЛЬ */
-
-.controls {
-    position: absolute;
-    bottom: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.94);
-    padding: 8px;
-    border-radius: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    z-index: 200;
-    width: 96%;
-    max-width: 360px;
-    max-height: 60vh;
-    overflow-y: auto;
-    box-sizing: border-box;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.8);
-}
-
-/* ТАЙМЛАЙН */
-
-.timeline-container {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    margin-bottom: 4px;
-    padding: 0 2px;
-    box-sizing: border-box;
-}
-
-.timeline-slider {
-    flex: 1;
-    -webkit-appearance: none;
-    appearance: none;
-    background: #444;
-    height: 4px;
-    border-radius: 2px;
-    outline: none;
-    margin: 0;
-    padding: 0;
-}
-
-.timeline-slider::-webkit-slider-runnable-track {
-    height: 4px;
-    background: #444;
-    border-radius: 2px;
-    border: none;
-}
-
-.timeline-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 17px;
-    height: 17px;
-    border-radius: 50%;
-    background: #4CAF50;
-    cursor: pointer;
-    margin-top: -6px;
-}
-
-.timeline-slider::-moz-range-thumb {
-    width: 17px;
-    height: 17px;
-    border-radius: 50%;
-    background: #4CAF50;
-    cursor: pointer;
-    border: none;
-}
-
-.time-display {
-    font-size: 11px;
-    color: #bbb;
-    white-space: nowrap;
-    font-family: monospace;
-}
-
-.controls-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
-}
-
-.controls button {
-    margin: 0;
-    padding: 7px 2px;
-    border-radius: 6px;
-    font-size: 11px;
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    font-weight: bold;
-    cursor: pointer;
-    width: 100%;
-}
-
-.btn-full {
-    grid-column: span 3;
-}
-
-.reset-btn {
-    background-color: #444 !important;
-}
-
-.action-btn {
-    background-color: #2196F3 !important;
-}
-
-.scale-btn {
-    background-color: #E91E63 !important;
-}
-
-.fullscreen-btn {
-    background-color: #FF9800 !important;
-}
-
-.save-btn {
-    background-color: #FF5722 !important;
-}
-
-.file-btn {
-    background-color: #607D8B !important;
-}
-
-.calib-open-btn {
-    background-color: #9C27B0 !important;
-}
-
-.status {
-    font-size: 12px;
-    margin-top: 10px;
-    color: #888;
 }
 </style>
 </head>
 
 <body>
 
-<div class="card" id="setupCard">
+<div id="app">
 
-    <h2>ScreenParty Sync</h2>
+    <div id="startScreen">
+        <div class="panel">
 
-    <label>Роль пристрою:</label>
-    <select id="roleSelect">
-        <option value="host">Головний (Host - S25+)</option>
-        <option value="client">Другий (Client - S10)</option>
-    </select>
+            <h1>ScreenParty Sync Pro</h1>
 
-    <label>Позиція екрана:</label>
-    <select id="positionSelect">
-        <option value="left">Ліва частина (поруч зліва)</option>
-        <option value="right" selected>Права частина (поруч справа)</option>
-    </select>
+            <h2>Режим</h2>
 
-    <label>Режим відео:</label>
-    <select id="videoModeSelect">
-        <option value="stream">
-            Трансляція відео з Головного на другий (P2P)
-        </option>
-        <option value="local">
-            Локальні файли на обох телефонах
-        </option>
-    </select>
+            <div class="roleButtons">
+                <button id="hostRoleBtn" class="active">
+                    Головний<br>(Host - S25+)
+                </button>
 
-    <div id="fileInputContainer">
-        <label>Виберіть відеофайл:</label>
-        <input type="file" id="videoInput" accept="video/*">
-    </div>
-
-    <div id="hostSection">
-
-        <button id="startHostBtn">
-            Створити кімнату та запустити
-        </button>
-
-        <div id="codeContainer" class="hidden">
-            <div style="font-size:12px;color:#aaa;margin-top:6px;">
-                Ваш 5-значний код:
+                <button id="clientRoleBtn">
+                    Другий<br>(Client - S10)
+                </button>
             </div>
 
-            <div id="hostCodeDisplay" class="code-display">
-                -----
-            </div>
-        </div>
+            <label>Позиція телефону</label>
 
-    </div>
+            <select id="positionSelect">
+                <option value="left">Ліворуч</option>
+                <option value="right">Праворуч</option>
+            </select>
 
-    <div id="clientSection" class="hidden">
-
-        <label for="clientCodeInput">
-            Введіть 5-значний код з головного телефону:
-        </label>
-
-        <input
-            type="text"
-            id="clientCodeInput"
-            maxlength="5"
-            placeholder="12345"
-        >
-
-        <button id="connectClientBtn">
-            Підключитися та запустити
-        </button>
-
-    </div>
-
-    <div class="status" id="connectionStatus">
-        Статус: Очікування налаштування
-    </div>
-
-</div>
-
-
-<!-- КАЛІБРУВАННЯ -->
-
-<div id="calibrationScreen">
-
-    <div id="calibBox" class="calib-box">
-        <div class="calib-circle">
-            HD 720p<br>
-            Центр
-        </div>
-    </div>
-
-    <div class="controls">
-
-        <div style="
-            font-size:11px;
-            text-align:center;
-            color:#FFEB3B;
-            font-weight:bold;
-            margin-bottom:2px;
-        ">
-            Калібрування цього екрана
-        </div>
-
-        <div class="controls-grid">
-
-            <button id="calibScalePlus" class="scale-btn">
-                🔍 Збільшити (+)
-            </button>
-
-            <button id="calibReset" class="reset-btn">
-                Скидання
-            </button>
-
-            <button id="calibScaleMinus" class="scale-btn">
-                🔍 Зменшити (-)
-            </button>
-
-            <button id="calibShiftLeft">
-                ◄ Ліворуч
-            </button>
-
-            <button id="calibShiftUp">
-                ▲ Вгору
-            </button>
-
-            <button id="calibShiftRight">
-                Праворуч ►
-            </button>
-
-            <button class="reset-btn" style="visibility:hidden;"></button>
-
-            <button id="calibShiftDown">
-                ▼ Вниз
-            </button>
-
-            <button class="reset-btn" style="visibility:hidden;"></button>
-
-            <button
-                id="closeCalibBtn"
-                class="save-btn btn-full"
-            >
-                ✔ Зберегти та сховати рамку
-            </button>
-
-        </div>
-    </div>
-
-</div>
-
-
-<!-- ВІДЕОПЛЕЄР -->
-
-<div id="playerScreen">
-
-    <video
-        id="videoPlayer"
-        class="vid-el"
-        playsinline
-        autoplay
-    ></video>
-
-    <div id="volumeIndicator">
-        🔊 100%
-    </div>
-
-    <input
-        type="file"
-        id="newVideoInput"
-        accept="video/*"
-        style="display:none;"
-    >
-
-    <div class="controls" id="playerControls">
-
-        <!-- ТАЙМЛАЙН ТЕПЕР НА ОБОХ ТЕЛЕФОНАХ -->
-        <div
-            class="timeline-container"
-            id="timelineContainer"
-        >
+            <label>Код кімнати (5 цифр)</label>
 
             <input
-                type="range"
-                id="timelineRange"
-                class="timeline-slider"
-                min="0"
-                max="100"
-                value="0"
-                step="0.1"
-            >
+                id="roomCode"
+                inputmode="numeric"
+                maxlength="5"
+                placeholder="Наприклад 12345">
 
-            <div
-                class="time-display"
-                id="timeDisplay"
-            >
+            <label>Відео</label>
+
+            <input
+                id="videoFile"
+                type="file"
+                accept="video/*">
+
+            <button id="startBtn">
+                Створити кімнату
+            </button>
+
+            <button id="connectBtn" class="hidden">
+                Підключитися
+            </button>
+
+            <div id="status">
+                Виберіть роль і відео
+            </div>
+
+            <div class="small">
+                S25+ є головним джерелом часу. S10 синхронізується з ним.
+            </div>
+
+        </div>
+    </div>
+
+    <video id="videoPlayer"
+           playsinline
+           webkit-playsinline
+           preload="auto"></video>
+
+    <audio id="hiddenAudio" muted></audio>
+
+    <div id="connectionInfo">
+        Очікування...
+    </div>
+
+    <div id="mainUI">
+
+        <div id="controls">
+
+            <input id="timeline"
+                   type="range"
+                   min="0"
+                   max="100"
+                   value="0"
+                   step="0.01">
+
+            <div id="timeText">
                 00:00 / 00:00
             </div>
 
-        </div>
+            <div class="controlRow">
 
-        <div style="
-            font-size:10px;
-            text-align:center;
-            color:#ddd;
-            font-weight:bold;
-            margin-bottom:2px;
-        ">
-            Керування відтворенням
-        </div>
+                <button id="playBtn">▶</button>
+                <button id="pauseBtn">⏸</button>
+                <button id="restartBtn">↺</button>
+                <button id="fullscreenBtn">⛶</button>
+                <button id="calibrationBtn">⚙</button>
 
-        <div class="controls-grid">
-
-            <button id="playPauseBtn" class="action-btn">
-                ▶ Грати
-            </button>
-
-            <button id="restartBtn" class="action-btn">
-                ↺ З початку
-            </button>
-
-            <button id="fullscreenBtn" class="fullscreen-btn">
-                ⛶ Екран
-            </button>
-
-            <button
-                id="changeVideoBtn"
-                class="file-btn btn-full"
-            >
-                📁 Вибрати інше відео
-            </button>
-
-            <button
-                id="openCalibOverlayBtn"
-                class="calib-open-btn btn-full"
-            >
-                📐 Увімкнути калібрування
-            </button>
-
-            <button
-                id="playerSaveBtn"
-                class="save-btn btn-full"
-            >
-                💾 Зберегти налаштування
-            </button>
-
-            <button id="scalePlusBtn" class="scale-btn">
-                🔍 Збільшити (+)
-            </button>
-
-            <button id="resetShiftBtn" class="reset-btn">
-                Скидання
-            </button>
-
-            <button id="scaleMinusBtn" class="scale-btn">
-                🔍 Зменшити (-)
-            </button>
-
-            <button id="shiftLeftBtn">
-                ◄ Ліворуч
-            </button>
-
-            <button id="shiftUpBtn">
-                ▲ Вгору
-            </button>
-
-            <button id="shiftRightBtn">
-                Праворуч ►
-            </button>
-
-            <button
-                class="reset-btn"
-                style="visibility:hidden;"
-            ></button>
-
-            <button id="shiftDownBtn">
-                ▼ Вниз
-            </button>
-
-            <button
-                class="reset-btn"
-                style="visibility:hidden;"
-            ></button>
+            </div>
 
         </div>
+
+        <div id="calibration">
+
+            <h3>Калібрування</h3>
+
+            <div class="calRow">
+                <span>Масштаб</span>
+                <button id="scaleDownBtn">−</button>
+                <div id="scaleValue" class="calValue">1.00</div>
+                <button id="scaleUpBtn">+</button>
+            </div>
+
+            <div class="calRow">
+                <span>Вліво / вправо</span>
+                <button id="shiftLeftBtn">←</button>
+                <div id="offsetXValue" class="calValue">0</div>
+                <button id="shiftRightBtn">→</button>
+            </div>
+
+            <div class="calRow">
+                <span>Вгору / вниз</span>
+                <button id="shiftUpBtn">↑</button>
+                <div id="offsetYValue" class="calValue">0</div>
+                <button id="shiftDownBtn">↓</button>
+            </div>
+
+            <div class="calRow">
+                <button id="resetCalibrationBtn">
+                    Скинути
+                </button>
+            </div>
+
+            <div class="calRow">
+                <button id="saveCalibrationBtn">
+                    Зберегти
+                </button>
+            </div>
+
+            <button id="closeCalibrationBtn" class="secondary">
+                Закрити
+            </button>
+
+        </div>
+
     </div>
+
 </div>
 
-
 <script>
+'use strict';
 
 /* =========================================================
-   ЕЛЕМЕНТИ
-========================================================= */
-
-const setupCard = document.getElementById('setupCard');
-const playerScreen = document.getElementById('playerScreen');
-const calibrationScreen = document.getElementById('calibrationScreen');
-const calibBox = document.getElementById('calibBox');
+   SCREENPARTY SYNC PRO
+   ========================================================= */
 
 const videoPlayer = document.getElementById('videoPlayer');
-const playerControls = document.getElementById('playerControls');
-const newVideoInput = document.getElementById('newVideoInput');
+const startScreen = document.getElementById('startScreen');
+const statusEl = document.getElementById('status');
+const connectionInfo = document.getElementById('connectionInfo');
 
-const timelineContainer =
-    document.getElementById('timelineContainer');
+const hostRoleBtn = document.getElementById('hostRoleBtn');
+const clientRoleBtn = document.getElementById('clientRoleBtn');
 
-const roleSelect =
-    document.getElementById('roleSelect');
+const roomCodeInput = document.getElementById('roomCode');
+const positionSelect = document.getElementById('positionSelect');
+const videoFileInput = document.getElementById('videoFile');
 
-const positionSelect =
-    document.getElementById('positionSelect');
+const startBtn = document.getElementById('startBtn');
+const connectBtn = document.getElementById('connectBtn');
 
-const videoModeSelect =
-    document.getElementById('videoModeSelect');
+const timeline = document.getElementById('timeline');
+const timeText = document.getElementById('timeText');
 
-const fileInputContainer =
-    document.getElementById('fileInputContainer');
+const playBtn = document.getElementById('playBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const restartBtn = document.getElementById('restartBtn');
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+const calibrationBtn = document.getElementById('calibrationBtn');
 
-const videoInput =
-    document.getElementById('videoInput');
+const controls = document.getElementById('controls');
+const calibration = document.getElementById('calibration');
 
-const hostSection =
-    document.getElementById('hostSection');
+const scaleDownBtn = document.getElementById('scaleDownBtn');
+const scaleUpBtn = document.getElementById('scaleUpBtn');
 
-const clientSection =
-    document.getElementById('clientSection');
+const shiftLeftBtn = document.getElementById('shiftLeftBtn');
+const shiftRightBtn = document.getElementById('shiftRightBtn');
+const shiftUpBtn = document.getElementById('shiftUpBtn');
+const shiftDownBtn = document.getElementById('shiftDownBtn');
 
-const connectionStatus =
-    document.getElementById('connectionStatus');
+const resetCalibrationBtn =
+    document.getElementById('resetCalibrationBtn');
 
-const openCalibOverlayBtn =
-    document.getElementById('openCalibOverlayBtn');
+const saveCalibrationBtn =
+    document.getElementById('saveCalibrationBtn');
 
-const closeCalibBtn =
-    document.getElementById('closeCalibBtn');
+const closeCalibrationBtn =
+    document.getElementById('closeCalibrationBtn');
 
-const startHostBtn =
-    document.getElementById('startHostBtn');
-
-const codeContainer =
-    document.getElementById('codeContainer');
-
-const hostCodeDisplay =
-    document.getElementById('hostCodeDisplay');
-
-const clientCodeInput =
-    document.getElementById('clientCodeInput');
-
-const connectClientBtn =
-    document.getElementById('connectClientBtn');
-
-const playPauseBtn =
-    document.getElementById('playPauseBtn');
-
-const restartBtn =
-    document.getElementById('restartBtn');
-
-const fullscreenBtn =
-    document.getElementById('fullscreenBtn');
-
-const timelineRange =
-    document.getElementById('timelineRange');
-
-const timeDisplay =
-    document.getElementById('timeDisplay');
-
-const volumeIndicator =
-    document.getElementById('volumeIndicator');
-
-const changeVideoBtn =
-    document.getElementById('changeVideoBtn');
+const scaleValue = document.getElementById('scaleValue');
+const offsetXValue = document.getElementById('offsetXValue');
+const offsetYValue = document.getElementById('offsetYValue');
 
 
-/* =========================================================
-   СТАН
-========================================================= */
-
+let isHost = true;
 let peer = null;
 let conn = null;
-let activeCall = null;
 
-let isHost = false;
+let roomCode = '';
 
-let localVideoBlobUrl = null;
+let videoURL = null;
 
-let audioCtx = null;
-let silentOscillator = null;
+let isConnected = false;
+let isDraggingTimeline = false;
+let receivedFirstSync = false;
 
+let syncTimer = null;
 let wakeLock = null;
 let wakeLockRetryTimer = null;
-let wakeLockMonitor = null;
+let wakeLockMonitorTimer = null;
 
-let videoOffsetX = 0;
-let videoOffsetY = 0;
-let videoScaleMultiplier = 1.0;
+let audioContext = null;
+let antiSleepStarted = false;
 
-let syncInterval = null;
+let lastHostState = {
+    playing: false,
+    time: 0
+};
 
-let partnerWidth = 0;
-let partnerHeight = 0;
-
-let isDraggingTimeline = false;
-let isSwipingVolume = false;
-
-let touchStartY = 0;
-let touchStartX = 0;
-let touchStartVolume = 1.0;
-
-let hasSwiped = false;
-let volumeTimeout = null;
-
-let ignoreSeekEvent = false;
+let lastSyncReceived = 0;
 
 
 /* =========================================================
-   PEERJS
-========================================================= */
+   CALIBRATION
+   ========================================================= */
 
-const peerOptions = {
+let scale = parseFloat(
+    localStorage.getItem('sp_scale') || '1'
+);
 
-    debug: 1,
+let offsetX = parseInt(
+    localStorage.getItem('sp_offsetX') || '0',
+    10
+);
 
-    config: {
-        iceServers: [
-            {
-                urls: 'stun:stun.l.google.com:19302'
-            },
-            {
-                urls: 'stun:stun1.l.google.com:19302'
-            }
-        ]
+let offsetY = parseInt(
+    localStorage.getItem('sp_offsetY') || '0',
+    10
+);
+
+let position =
+    localStorage.getItem('sp_position') || 'left';
+
+positionSelect.value = position;
+
+
+function updateCalibrationUI() {
+
+    scaleValue.textContent = scale.toFixed(2);
+    offsetXValue.textContent = offsetX;
+    offsetYValue.textContent = offsetY;
+
+    applyCalibration();
+}
+
+
+function applyCalibration() {
+
+    const appWidth = window.innerWidth;
+    const appHeight = window.innerHeight;
+
+    const x = offsetX;
+    const y = offsetY;
+
+    videoPlayer.style.transform =
+        `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+
+    videoPlayer.style.transformOrigin =
+        'center center';
+
+    videoPlayer.style.width =
+        `${appWidth}px`;
+
+    videoPlayer.style.height =
+        `${appHeight}px`;
+}
+
+
+updateCalibrationUI();
+
+
+scaleDownBtn.addEventListener('click', () => {
+
+    scale = Math.max(
+        0.1,
+        +(scale - 0.05).toFixed(2)
+    );
+
+    updateCalibrationUI();
+});
+
+
+scaleUpBtn.addEventListener('click', () => {
+
+    scale = Math.min(
+        5,
+        +(scale + 0.05).toFixed(2)
+    );
+
+    updateCalibrationUI();
+});
+
+
+shiftLeftBtn.addEventListener('click', () => {
+
+    offsetX -= 4;
+    updateCalibrationUI();
+});
+
+
+shiftRightBtn.addEventListener('click', () => {
+
+    offsetX += 4;
+    updateCalibrationUI();
+});
+
+
+shiftUpBtn.addEventListener('click', () => {
+
+    offsetY -= 4;
+    updateCalibrationUI();
+});
+
+
+shiftDownBtn.addEventListener('click', () => {
+
+    offsetY += 4;
+    updateCalibrationUI();
+});
+
+
+resetCalibrationBtn.addEventListener('click', () => {
+
+    scale = 1;
+    offsetX = 0;
+    offsetY = 0;
+
+    updateCalibrationUI();
+});
+
+
+saveCalibrationBtn.addEventListener('click', () => {
+
+    localStorage.setItem('sp_scale', scale);
+    localStorage.setItem('sp_offsetX', offsetX);
+    localStorage.setItem('sp_offsetY', offsetY);
+    localStorage.setItem('sp_position', position);
+
+    statusEl.textContent = 'Калібрування збережено';
+});
+
+
+closeCalibrationBtn.addEventListener('click', () => {
+
+    calibration.classList.remove('show');
+});
+
+
+calibrationBtn.addEventListener('click', () => {
+
+    calibration.classList.toggle('show');
+});
+
+
+window.addEventListener('resize', applyCalibration);
+
+
+/* =========================================================
+   ROLE
+   ========================================================= */
+
+hostRoleBtn.addEventListener('click', () => {
+
+    isHost = true;
+
+    hostRoleBtn.classList.add('active');
+    clientRoleBtn.classList.remove('active');
+
+    startBtn.classList.remove('hidden');
+    connectBtn.classList.add('hidden');
+
+    statusEl.textContent =
+        'Режим Host — S25+';
+});
+
+
+clientRoleBtn.addEventListener('click', () => {
+
+    isHost = false;
+
+    clientRoleBtn.classList.add('active');
+    hostRoleBtn.classList.remove('active');
+
+    startBtn.classList.add('hidden');
+    connectBtn.classList.remove('hidden');
+
+    statusEl.textContent =
+        'Режим Client — S10';
+});
+
+
+positionSelect.addEventListener('change', () => {
+
+    position = positionSelect.value;
+
+    localStorage.setItem(
+        'sp_position',
+        position
+    );
+});
+
+
+/* =========================================================
+   TIME FORMAT
+   ========================================================= */
+
+function formatTime(seconds) {
+
+    if (!Number.isFinite(seconds)) {
+        return '00:00';
     }
-};
+
+    seconds = Math.max(0, Math.floor(seconds));
+
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+
+    if (h > 0) {
+
+        return String(h).padStart(2, '0') +
+            ':' +
+            String(m).padStart(2, '0') +
+            ':' +
+            String(s).padStart(2, '0');
+    }
+
+    return String(m).padStart(2, '0') +
+        ':' +
+        String(s).padStart(2, '0');
+}
+
+
+/* =========================================================
+   TIMELINE
+   ========================================================= */
+
+function updateTimeline() {
+
+    if (!Number.isFinite(videoPlayer.duration)) {
+        return;
+    }
+
+    const duration = videoPlayer.duration;
+
+    if (!isDraggingTimeline) {
+
+        timeline.max = duration;
+        timeline.value =
+            Math.min(
+                videoPlayer.currentTime,
+                duration
+            );
+    }
+
+    timeText.textContent =
+        `${formatTime(videoPlayer.currentTime)} / ` +
+        `${formatTime(duration)}`;
+}
+
+
+videoPlayer.addEventListener(
+    'timeupdate',
+    updateTimeline
+);
+
+videoPlayer.addEventListener(
+    'durationchange',
+    updateTimeline
+);
+
+videoPlayer.addEventListener(
+    'loadedmetadata',
+    updateTimeline
+);
+
+
+timeline.addEventListener(
+    'pointerdown',
+    () => {
+        isDraggingTimeline = true;
+    }
+);
+
+
+timeline.addEventListener(
+    'pointerup',
+    () => {
+        isDraggingTimeline = false;
+    }
+);
+
+
+timeline.addEventListener(
+    'input',
+    () => {
+
+        if (!Number.isFinite(videoPlayer.duration)) {
+            return;
+        }
+
+        const t = parseFloat(timeline.value);
+
+        timeText.textContent =
+            `${formatTime(t)} / ` +
+            `${formatTime(videoPlayer.duration)}`;
+    }
+);
+
+
+timeline.addEventListener(
+    'change',
+    () => {
+
+        const t = parseFloat(timeline.value);
+
+        if (!Number.isFinite(t)) {
+            return;
+        }
+
+        videoPlayer.currentTime = t;
+
+        if (isHost) {
+
+            sendToClient({
+                type: 'seek',
+                time: t
+            });
+
+            sendHostSync();
+        } else {
+
+            sendToHost({
+                type: 'seek_request',
+                time: t
+            });
+        }
+
+        isDraggingTimeline = false;
+    }
+);
+
+
+/* =========================================================
+   VIDEO FILE
+   ========================================================= */
+
+function loadVideoFile() {
+
+    const file = videoFileInput.files[0];
+
+    if (!file) {
+        return false;
+    }
+
+    if (videoURL) {
+        URL.revokeObjectURL(videoURL);
+    }
+
+    videoURL = URL.createObjectURL(file);
+
+    videoPlayer.src = videoURL;
+    videoPlayer.load();
+
+    return true;
+}
 
 
 /* =========================================================
    WAKE LOCK
-========================================================= */
+   ========================================================= */
 
 async function requestWakeLock() {
 
     if (!('wakeLock' in navigator)) {
-        return;
-    }
-
-    if (document.visibilityState !== 'visible') {
-        return;
+        return false;
     }
 
     try {
 
-        if (wakeLock && !wakeLock.released) {
-            return;
+        if (wakeLock &&
+            !wakeLock.released) {
+
+            return true;
         }
 
-        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock =
+            await navigator.wakeLock.request('screen');
 
-        wakeLock.addEventListener('release', () => {
+        connectionInfo.textContent =
+            isConnected
+                ? 'Підключено • екран активний'
+                : 'Екран активний';
 
-            wakeLock = null;
+        wakeLock.addEventListener(
+            'release',
+            () => {
 
-            scheduleWakeLockRetry();
+                wakeLock = null;
 
-        });
+                connectionInfo.textContent =
+                    isConnected
+                        ? 'Підключено • екран звільнено'
+                        : 'Екран звільнено';
 
-    } catch (e) {
+                scheduleWakeLockRetry();
+            }
+        );
+
+        return true;
+
+    } catch (err) {
+
+        wakeLock = null;
 
         scheduleWakeLockRetry();
 
+        return false;
     }
 }
 
@@ -792,515 +936,503 @@ function scheduleWakeLockRetry() {
         clearTimeout(wakeLockRetryTimer);
     }
 
-    wakeLockRetryTimer = setTimeout(() => {
+    wakeLockRetryTimer =
+        setTimeout(
+            () => {
+                requestWakeLock();
+            },
+            1200
+        );
+}
 
-        if (
-            document.visibilityState === 'visible' &&
-            playerScreen.style.display !== 'none'
-        ) {
-            requestWakeLock();
+
+async function checkWakeLock() {
+
+    if (!document.hidden) {
+
+        if (!wakeLock ||
+            wakeLock.released) {
+
+            await requestWakeLock();
         }
-
-    }, 1500);
+    }
 }
 
 
 function startWakeLockMonitor() {
 
-    if (wakeLockMonitor) {
-        clearInterval(wakeLockMonitor);
+    if (wakeLockMonitorTimer) {
+        clearInterval(wakeLockMonitorTimer);
     }
 
-    wakeLockMonitor = setInterval(() => {
-
-        if (
-            document.visibilityState === 'visible' &&
-            playerScreen.style.display !== 'none'
-        ) {
-            requestWakeLock();
-        }
-
-    }, 10000);
-}
-
-
-/* =========================================================
-   ДОДАТКОВИЙ ANTI-SLEEP
-========================================================= */
-
-function startAntiSleepAudio() {
-
-    try {
-
-        if (!audioCtx) {
-
-            const AudioContextClass =
-                window.AudioContext ||
-                window.webkitAudioContext;
-
-            if (AudioContextClass) {
-                audioCtx = new AudioContextClass();
-            }
-        }
-
-        if (
-            audioCtx &&
-            audioCtx.state === 'suspended'
-        ) {
-            audioCtx.resume().catch(() => {});
-        }
-
-        if (
-            audioCtx &&
-            !silentOscillator
-        ) {
-
-            const gain =
-                audioCtx.createGain();
-
-            gain.gain.value = 0.0001;
-
-            const osc =
-                audioCtx.createOscillator();
-
-            osc.frequency.value = 100;
-
-            osc.connect(gain);
-
-            gain.connect(audioCtx.destination);
-
-            osc.start();
-
-            silentOscillator = gain;
-        }
-
-    } catch (e) {}
+    wakeLockMonitorTimer =
+        setInterval(
+            checkWakeLock,
+            5000
+        );
 
     requestWakeLock();
 }
 
 
+document.addEventListener(
+    'visibilitychange',
+    () => {
+
+        if (!document.hidden) {
+            requestWakeLock();
+        }
+    }
+);
+
+
+window.addEventListener(
+    'focus',
+    () => {
+        requestWakeLock();
+    }
+);
+
+
+window.addEventListener(
+    'pageshow',
+    () => {
+        requestWakeLock();
+    }
+);
+
+
 /* =========================================================
-   НАЛАШТУВАННЯ
-========================================================= */
+   ANTI-SLEEP AUDIO
+   ========================================================= */
 
-function loadSavedSettings() {
+function startAntiSleepAudio() {
 
-    const savedScale =
-        localStorage.getItem('sp_scale');
-
-    const savedX =
-        localStorage.getItem('sp_offsetX');
-
-    const savedY =
-        localStorage.getItem('sp_offsetY');
-
-    const savedPos =
-        localStorage.getItem('sp_position');
-
-
-    if (savedScale !== null) {
-
-        videoScaleMultiplier =
-            Math.max(
-                0.1,
-                Math.min(
-                    5.0,
-                    parseFloat(savedScale)
-                )
-            );
+    if (antiSleepStarted) {
+        return;
     }
 
+    antiSleepStarted = true;
 
-    if (savedX !== null) {
+    try {
 
-        videoOffsetX =
-            Math.max(
-                -3000,
-                Math.min(
-                    3000,
-                    parseFloat(savedX)
-                )
-            );
-    }
+        const AudioCtx =
+            window.AudioContext ||
+            window.webkitAudioContext;
 
+        if (!AudioCtx) {
+            return;
+        }
 
-    if (savedY !== null) {
+        audioContext =
+            new AudioCtx();
 
-        videoOffsetY =
-            Math.max(
-                -3000,
-                Math.min(
-                    3000,
-                    parseFloat(savedY)
-                )
-            );
-    }
+        const oscillator =
+            audioContext.createOscillator();
 
+        const gain =
+            audioContext.createGain();
 
-    if (
-        savedPos === 'left' ||
-        savedPos === 'right'
-    ) {
-        positionSelect.value = savedPos;
-    }
-}
+        oscillator.frequency.value = 20;
 
-loadSavedSettings();
+        gain.gain.value = 0.00001;
 
+        oscillator.connect(gain);
+        gain.connect(
+            audioContext.destination
+        );
 
-function saveSettings() {
+        oscillator.start();
 
-    localStorage.setItem(
-        'sp_scale',
-        videoScaleMultiplier
-    );
-
-    localStorage.setItem(
-        'sp_offsetX',
-        videoOffsetX
-    );
-
-    localStorage.setItem(
-        'sp_offsetY',
-        videoOffsetY
-    );
-
-    localStorage.setItem(
-        'sp_position',
-        positionSelect.value
-    );
-
-
-    const saveBtn =
-        document.getElementById('playerSaveBtn');
-
-    if (saveBtn) {
-
-        const originalText =
-            saveBtn.textContent;
-
-        saveBtn.textContent =
-            '✔ Збережено!';
-
-        setTimeout(() => {
-
-            saveBtn.textContent =
-                originalText;
-
-        }, 1200);
+    } catch (e) {
+        console.log(
+            'Anti sleep audio:',
+            e
+        );
     }
 }
 
 
 /* =========================================================
-   ВИДИМІСТЬ НАЛАШТУВАНЬ
-========================================================= */
+   PEER HELPERS
+   ========================================================= */
 
-function updateInputsVisibility() {
+function setStatus(text) {
 
-    const role =
-        roleSelect.value;
-
-    const mode =
-        videoModeSelect.value;
+    statusEl.textContent = text;
+}
 
 
-    if (role === 'host') {
+function sendToHost(data) {
 
-        hostSection.classList.remove('hidden');
+    if (!conn ||
+        !conn.open) {
+        return;
+    }
 
-        clientSection.classList.add('hidden');
+    try {
+        conn.send(data);
+    } catch (e) {
+        console.log(e);
+    }
+}
 
-        fileInputContainer.style.display =
-            'block';
 
-        changeVideoBtn.style.display =
-            'block';
+function sendToClient(data) {
+
+    if (!conn ||
+        !conn.open) {
+        return;
+    }
+
+    try {
+        conn.send(data);
+    } catch (e) {
+        console.log(e);
+    }
+}
+
+
+/* =========================================================
+   HOST SYNC
+   ========================================================= */
+
+function getHostState() {
+
+    return {
+        type: 'sync_state',
+
+        time:
+            Number.isFinite(
+                videoPlayer.currentTime
+            )
+                ? videoPlayer.currentTime
+                : 0,
+
+        playing:
+            !videoPlayer.paused &&
+            !videoPlayer.ended,
+
+        duration:
+            Number.isFinite(
+                videoPlayer.duration
+            )
+                ? videoPlayer.duration
+                : 0,
+
+        sentAt:
+            Date.now()
+    };
+}
+
+
+function sendHostSync() {
+
+    if (!isHost ||
+        !conn ||
+        !conn.open) {
+        return;
+    }
+
+    sendToClient(
+        getHostState()
+    );
+}
+
+
+/* =========================================================
+   SYNC TIMER
+   ========================================================= */
+
+function startSyncTimer() {
+
+    if (syncTimer) {
+        clearInterval(syncTimer);
+    }
+
+    syncTimer =
+        setInterval(
+            () => {
+
+                if (isHost) {
+                    sendHostSync();
+                }
+
+            },
+            300
+        );
+}
+
+
+/* =========================================================
+   CLIENT SYNC
+   ========================================================= */
+
+function applyClientSync(data) {
+
+    if (isHost) {
+        return;
+    }
+
+    if (!videoPlayer.src) {
+        return;
+    }
+
+    if (!Number.isFinite(data.time)) {
+        return;
+    }
+
+    const hostTime = data.time;
+
+    const localTime =
+        Number.isFinite(
+            videoPlayer.currentTime
+        )
+            ? videoPlayer.currentTime
+            : 0;
+
+    const diff =
+        localTime - hostTime;
+
+    lastSyncReceived =
+        performance.now();
+
+    /*
+     * Перший sync:
+     * одразу ставимо S10 у точну позицію S25+.
+     */
+    if (!receivedFirstSync) {
+
+        receivedFirstSync = true;
+
+        try {
+            videoPlayer.currentTime =
+                hostTime;
+        } catch (e) {}
+
+        if (data.playing) {
+
+            videoPlayer.play()
+                .catch(() => {});
+
+        } else {
+
+            videoPlayer.pause();
+        }
+
+        videoPlayer.playbackRate = 1;
+
+        return;
+    }
+
+
+    /*
+     * Якщо розсинхрон став більшим
+     * приблизно за 250 мс —
+     * робимо точний стрибок.
+     */
+    if (Math.abs(diff) > 0.25) {
+
+        try {
+            videoPlayer.currentTime =
+                hostTime;
+        } catch (e) {}
+
+        videoPlayer.playbackRate = 1;
+    }
+
+    /*
+     * Невеликий розсинхрон виправляємо
+     * швидкістю, без помітного стрибка.
+     */
+    else if (!isDraggingTimeline) {
+
+        let rate =
+            1 - (diff * 0.08);
+
+        rate =
+            Math.max(
+                0.97,
+                Math.min(
+                    1.03,
+                    rate
+                )
+            );
+
+        videoPlayer.playbackRate =
+            rate;
+    }
+
+
+    /*
+     * Стан Play / Pause завжди
+     * визначає Host.
+     */
+    if (data.playing) {
+
+        if (videoPlayer.paused) {
+
+            videoPlayer.play()
+                .catch(() => {});
+        }
 
     } else {
 
-        hostSection.classList.add('hidden');
-
-        clientSection.classList.remove('hidden');
-
-        fileInputContainer.style.display =
-            mode === 'stream'
-                ? 'none'
-                : 'block';
-
-        changeVideoBtn.style.display =
-            'none';
-    }
-}
-
-roleSelect.addEventListener(
-    'change',
-    updateInputsVisibility
-);
-
-videoModeSelect.addEventListener(
-    'change',
-    updateInputsVisibility
-);
-
-updateInputsVisibility();
-
-
-/* =========================================================
-   FULLSCREEN
-========================================================= */
-
-function requestFullscreenNow() {
-
-    const elem =
-        document.documentElement;
-
-    if (!document.fullscreenElement) {
-
-        if (elem.requestFullscreen) {
-
-            elem.requestFullscreen()
-                .catch(() => {});
+        if (!videoPlayer.paused) {
+            videoPlayer.pause();
         }
+
+        videoPlayer.playbackRate = 1;
     }
 }
 
 
 /* =========================================================
-   КАЛІБРУВАННЯ
-========================================================= */
+   PEER CONNECTION
+   ========================================================= */
 
-openCalibOverlayBtn.addEventListener(
-    'click',
-    () => {
+function createHost() {
 
-        calibrationScreen.style.display =
-            'block';
+    roomCode =
+        roomCodeInput.value
+            .replace(/\D/g, '')
+            .slice(0, 5);
 
-        updateCalibrationStyle();
-    }
-);
+    if (roomCode.length !== 5) {
 
+        setStatus(
+            'Введіть код із 5 цифр'
+        );
 
-closeCalibBtn.addEventListener(
-    'click',
-    () => {
-
-        saveSettings();
-
-        calibrationScreen.style.display =
-            'none';
-
-        updateVideoStyle();
-
-        openCalibOverlayBtn.style.display =
-            'none';
-    }
-);
-
-
-function updateCalibrationStyle() {
-
-    const myWidth =
-        window.innerWidth;
-
-    const pWidth =
-        partnerWidth > 0
-            ? partnerWidth
-            : myWidth;
-
-    const position =
-        positionSelect.value;
-
-    const combinedWidth =
-        myWidth + pWidth;
-
-    const finalWidth =
-        combinedWidth *
-        videoScaleMultiplier;
-
-    const finalHeight =
-        finalWidth / (16 / 9);
-
-    const leftPos =
-        position === 'left'
-            ? videoOffsetX
-            : videoOffsetX - pWidth;
-
-
-    calibBox.style.width =
-        finalWidth + 'px';
-
-    calibBox.style.height =
-        finalHeight + 'px';
-
-    calibBox.style.transform =
-        `translate3d(${leftPos}px, ${videoOffsetY}px, 0)`;
-}
-
-
-/* =========================================================
-   ВІДЕОФАЙЛ
-========================================================= */
-
-videoInput.addEventListener(
-    'change',
-    (e) => {
-
-        const file =
-            e.target.files[0];
-
-        if (!file) return;
-
-        localVideoBlobUrl =
-            URL.createObjectURL(file);
-
-        videoPlayer.src =
-            localVideoBlobUrl;
-
-        videoPlayer.muted =
-            false;
-
-        videoPlayer.volume =
-            1.0;
-
-        videoPlayer.pause();
-
-        connectionStatus.textContent =
-            'Статус: Відео завантажено. Готово.';
-    }
-);
-
-
-/* =========================================================
-   НОВЕ ВІДЕО
-========================================================= */
-
-changeVideoBtn.addEventListener(
-    'click',
-    () => {
-
-        if (isHost) {
-            newVideoInput.click();
-        }
-    }
-);
-
-
-newVideoInput.addEventListener(
-    'change',
-    (e) => {
-
-        const file =
-            e.target.files[0];
-
-        if (!file || !isHost) {
-            return;
-        }
-
-        localVideoBlobUrl =
-            URL.createObjectURL(file);
-
-        videoPlayer.src =
-            localVideoBlobUrl;
-
-        videoPlayer.load();
-
-        updateVideoStyle();
-
-        videoPlayer.currentTime =
-            0;
-
-        videoPlayer.muted =
-            false;
-
-        videoPlayer.volume =
-            1.0;
-
-        videoPlayer.pause();
-
-
-        if (conn && conn.open) {
-
-            sendVideoInfo();
-
-            sendSyncState();
-        }
-
-
-        if (
-            videoModeSelect.value ===
-            'stream'
-        ) {
-
-            setTimeout(
-                startStreaming,
-                500
-            );
-        }
-    }
-);
-
-
-/* =========================================================
-   START HOST
-========================================================= */
-
-startHostBtn.addEventListener(
-    'click',
-    () => {
-
-        startAntiSleepAudio();
-
-        if (!localVideoBlobUrl) {
-
-            alert(
-                'Виберіть відеофайл!'
-            );
-
-            return;
-        }
-
-        requestFullscreenNow();
-
-        isHost = true;
-
-        startHostPeer();
-    }
-);
-
-
-/* =========================================================
-   HOST PEER
-========================================================= */
-
-function startHostPeer() {
-
-    if (peer) {
-
-        try {
-            peer.destroy();
-        } catch (e) {}
-
+        return;
     }
 
+    if (!loadVideoFile()) {
 
-    const code =
-        Math.floor(
-            10000 +
-            Math.random() * 90000
-        ).toString();
+        setStatus(
+            'Виберіть відеофайл'
+        );
 
+        return;
+    }
 
-    connectionStatus.textContent =
-        'Статус: Створення кімнати...';
+    const peerId =
+        'sp-' + roomCode;
 
+    setStatus(
+        'Створення кімнати...'
+    );
 
     peer =
         new Peer(
-            'sp-' + code,
-            peerOptions
+            peerId,
+            {
+                host: '0.peerjs.com',
+                port: 443,
+                secure: true,
+                path: '/'
+            }
+        );
+
+
+    peer.on(
+        'open',
+        id => {
+
+            setStatus(
+                'Кімната створена. Очікування S10...'
+            );
+
+            connectionInfo.textContent =
+                'Очікування S10';
+
+            startScreen.classList.add(
+                'hidden'
+            );
+
+            startWakeLockMonitor();
+            startAntiSleepAudio();
+            startSyncTimer();
+
+            requestWakeLock();
+        }
+    );
+
+
+    peer.on(
+        'connection',
+        incomingConn => {
+
+            if (conn) {
+
+                try {
+                    conn.close();
+                } catch (e) {}
+            }
+
+            conn = incomingConn;
+
+            setupConnection();
+
+        }
+    );
+
+
+    peer.on(
+        'error',
+        err => {
+
+            console.log(
+                'Peer error:',
+                err
+            );
+
+            setStatus(
+                'Помилка: ' +
+                (err.message || err.type)
+            );
+        }
+    );
+}
+
+
+function connectClient() {
+
+    roomCode =
+        roomCodeInput.value
+            .replace(/\D/g, '')
+            .slice(0, 5);
+
+    if (roomCode.length !== 5) {
+
+        setStatus(
+            'Введіть код із 5 цифр'
+        );
+
+        return;
+    }
+
+    if (!loadVideoFile()) {
+
+        setStatus(
+            'Виберіть те саме відео'
+        );
+
+        return;
+    }
+
+    setStatus(
+        'Підключення до S25+...'
+    );
+
+    peer =
+        new Peer(
+            {
+                host: '0.peerjs.com',
+                port: 443,
+                secure: true,
+                path: '/'
+            }
         );
 
 
@@ -1308,25 +1440,16 @@ function startHostPeer() {
         'open',
         () => {
 
-            hostCodeDisplay.textContent =
-                code;
+            const hostId =
+                'sp-' + roomCode;
 
-            codeContainer.classList.remove(
-                'hidden'
-            );
-
-            connectionStatus.textContent =
-                'Статус: Кімнату створено! Очікування другого телефону...';
-
-        }
-    );
-
-
-    peer.on(
-        'connection',
-        (connection) => {
-
-            conn = connection;
+            conn =
+                peer.connect(
+                    hostId,
+                    {
+                        reliable: true
+                    }
+                );
 
             setupConnection();
         }
@@ -1334,833 +1457,234 @@ function startHostPeer() {
 
 
     peer.on(
-        'call',
-        (call) => {
+        'error',
+        err => {
 
-            call.answer();
+            console.log(
+                'Peer error:',
+                err
+            );
+
+            setStatus(
+                'Помилка підключення: ' +
+                (err.message || err.type)
+            );
         }
     );
 }
 
 
 /* =========================================================
-   CLIENT
-========================================================= */
-
-connectClientBtn.addEventListener(
-    'click',
-    () => {
-
-        startAntiSleepAudio();
-
-        const mode =
-            videoModeSelect.value;
-
-
-        if (
-            mode === 'local' &&
-            !localVideoBlobUrl
-        ) {
-
-            alert(
-                'Виберіть відеофайл!'
-            );
-
-            return;
-        }
-
-
-        const code =
-            clientCodeInput.value.trim();
-
-
-        if (code.length !== 5) {
-
-            alert(
-                'Введіть 5-значний код!'
-            );
-
-            return;
-        }
-
-
-        if (peer) {
-
-            try {
-                peer.destroy();
-            } catch (e) {}
-
-        }
-
-
-        requestFullscreenNow();
-
-        isHost = false;
-
-        connectionStatus.textContent =
-            'Статус: Підключення...';
-
-
-        peer =
-            new Peer(
-                peerOptions
-            );
-
-
-        peer.on(
-            'open',
-            () => {
-
-                conn =
-                    peer.connect(
-                        'sp-' + code
-                    );
-
-                setupConnection();
-            }
-        );
-
-
-        peer.on(
-            'call',
-            (call) => {
-
-                call.answer();
-
-                call.on(
-                    'stream',
-                    (remoteStream) => {
-
-                        videoPlayer.srcObject =
-                            remoteStream;
-
-                        videoPlayer.muted =
-                            false;
-
-                        videoPlayer.volume =
-                            1.0;
-
-                        videoPlayer.play()
-                            .catch(() => {});
-
-                        startAntiSleepAudio();
-                    }
-                );
-            }
-        );
-    }
-);
-
-
-/* =========================================================
-   SCREEN INFO
-========================================================= */
-
-function sendScreenInfo() {
-
-    if (
-        conn &&
-        conn.open
-    ) {
-
-        conn.send(
-            JSON.stringify({
-                type: 'screen_info',
-                width: window.innerWidth,
-                height: window.innerHeight,
-                position: positionSelect.value,
-                videoMode: videoModeSelect.value
-            })
-        );
-    }
-}
-
-
-/* =========================================================
-   VIDEO INFO
-========================================================= */
-
-function sendVideoInfo() {
-
-    if (
-        !conn ||
-        !conn.open ||
-        !isHost
-    ) {
-        return;
-    }
-
-    const duration =
-        isFinite(videoPlayer.duration)
-            ? videoPlayer.duration
-            : 0;
-
-
-    conn.send(
-        JSON.stringify({
-            type: 'video_info',
-            duration: duration
-        })
-    );
-}
-
-
-/* =========================================================
-   SYNC STATE
-========================================================= */
-
-function sendSyncState() {
-
-    if (
-        !conn ||
-        !conn.open ||
-        !isHost
-    ) {
-        return;
-    }
-
-
-    conn.send(
-        JSON.stringify({
-            type: 'sync_state',
-            time: videoPlayer.currentTime || 0,
-            paused: videoPlayer.paused,
-            duration:
-                isFinite(videoPlayer.duration)
-                    ? videoPlayer.duration
-                    : 0,
-            sentAt: Date.now()
-        })
-    );
-}
-
-
-/* =========================================================
-   STREAMING
-========================================================= */
-
-function startStreaming() {
-
-    if (
-        !isHost ||
-        videoModeSelect.value !== 'stream'
-    ) {
-        return;
-    }
-
-
-    try {
-
-        const stream =
-            videoPlayer.captureStream
-                ? videoPlayer.captureStream()
-                : videoPlayer.mozCaptureStream();
-
-
-        if (
-            stream &&
-            conn &&
-            conn.open &&
-            !activeCall
-        ) {
-
-            activeCall =
-                peer.call(
-                    conn.peer,
-                    stream
-                );
-
-            activeCall.on(
-                'close',
-                () => {
-                    activeCall = null;
-                }
-            );
-        }
-
-    } catch (e) {}
-}
-
-
-/* =========================================================
-   CONNECTION
-========================================================= */
+   CONNECTION HANDLER
+   ========================================================= */
 
 function setupConnection() {
 
-    const handleReady = () => {
-
-        connectionStatus.textContent =
-            'Статус: Підключено!';
-
-
-        sendScreenInfo();
-
-
-        setTimeout(
-            () => {
-
-                setupCard.style.display =
-                    'none';
-
-                playerScreen.style.display =
-                    'block';
-
-
-                updateVideoStyle();
-
-
-                videoPlayer.muted =
-                    false;
-
-                videoPlayer.volume =
-                    1.0;
-
-
-                /*
-                 * ТАЙМЛАЙН ЗАВЖДИ ВИДИМИЙ
-                 * НА ОБОХ ТЕЛЕФОНАХ
-                 */
-
-                timelineContainer.style.display =
-                    'flex';
-
-
-                startAntiSleepAudio();
-
-                startWakeLockMonitor();
-
-
-                if (isHost) {
-
-                    videoPlayer.currentTime =
-                        0;
-
-                    videoPlayer.play()
-                        .catch(() => {});
-
-                    playPauseBtn.textContent =
-                        '❚❚ Пауза';
-
-
-                    sendVideoInfo();
-
-                    if (
-                        videoModeSelect.value ===
-                        'stream'
-                    ) {
-
-                        startStreaming();
-                    }
-
-                } else {
-
-                    if (
-                        videoModeSelect.value ===
-                        'local'
-                    ) {
-
-                        videoPlayer.play()
-                            .catch(() => {});
-
-                        playPauseBtn.textContent =
-                            '❚❚ Пауза';
-                    }
-                }
-
-
-                /*
-                 * СИНХРОНІЗАЦІЯ КОЖНІ 500 МС
-                 */
-
-                if (syncInterval) {
-                    clearInterval(syncInterval);
-                }
-
-
-                syncInterval =
-                    setInterval(
-                        () => {
-
-                            if (
-                                conn &&
-                                conn.open &&
-                                isHost
-                            ) {
-
-                                sendSyncState();
-                            }
-
-                        },
-                        500
-                    );
-
-
-            },
-            300
-        );
-    };
-
-
-    if (conn.open) {
-
-        handleReady();
-
-    } else {
-
-        conn.on(
-            'open',
-            handleReady
-        );
+    if (!conn) {
+        return;
     }
+
+    conn.on(
+        'open',
+        () => {
+
+            isConnected = true;
+
+            connectionInfo.textContent =
+                'Підключено';
+
+            setStatus(
+                isHost
+                    ? 'S10 підключено'
+                    : 'Підключено до S25+'
+            );
+
+            startScreen.classList.add(
+                'hidden'
+            );
+
+            startWakeLockMonitor();
+            startAntiSleepAudio();
+            requestWakeLock();
+
+            if (isHost) {
+
+                setTimeout(
+                    sendHostSync,
+                    100
+                );
+            }
+        }
+    );
 
 
     conn.on(
         'data',
-        (data) => {
+        data => {
 
-            try {
-
-                const msg =
-                    JSON.parse(data);
-
-
-                /* SCREEN INFO */
-
-                if (
-                    msg.type ===
-                    'screen_info'
-                ) {
-
-                    partnerWidth =
-                        msg.width;
-
-                    partnerHeight =
-                        msg.height;
+            if (!data ||
+                !data.type) {
+                return;
+            }
 
 
-                    if (
-                        msg.videoMode &&
-                        msg.videoMode !==
-                        videoModeSelect.value
-                    ) {
+            /* -------------------------
+               CLIENT RECEIVES
+               ------------------------- */
 
-                        videoModeSelect.value =
-                            msg.videoMode;
+            if (!isHost) {
 
-                        updateInputsVisibility();
-                    }
+                if (data.type === 'sync_state') {
 
-
-                    updateVideoStyle();
-
-                    sendScreenInfo();
+                    applyClientSync(data);
+                    return;
                 }
 
 
-                /* VIDEO INFO */
+                if (data.type === 'seek') {
 
-                else if (
-                    msg.type ===
-                    'video_info'
-                ) {
+                    try {
 
-                    if (
-                        !isHost &&
-                        msg.duration > 0
-                    ) {
+                        videoPlayer.currentTime =
+                            data.time;
 
-                        timelineRange.max =
-                            100;
+                    } catch (e) {}
 
-                        timeDisplay.textContent =
-                            `${formatTime(
-                                videoPlayer.currentTime || 0
-                            )} / ${formatTime(
-                                msg.duration
-                            )}`;
-                    }
+                    videoPlayer.playbackRate = 1;
+
+                    return;
                 }
 
 
-                /* PLAY */
-
-                else if (
-                    msg.type === 'play'
-                ) {
-
-                    videoPlayer.playbackRate =
-                        1.0;
-
-                    videoPlayer.muted =
-                        false;
+                if (data.type === 'play') {
 
                     videoPlayer.play()
                         .catch(() => {});
 
-                    playPauseBtn.textContent =
-                        '❚❚ Пауза';
+                    requestWakeLock();
 
-                    startAntiSleepAudio();
-
-
-                    if (
-                        isHost &&
-                        videoModeSelect.value ===
-                        'stream'
-                    ) {
-
-                        startStreaming();
-                    }
+                    return;
                 }
 
 
-                /* PAUSE */
-
-                else if (
-                    msg.type === 'pause'
-                ) {
-
-                    videoPlayer.playbackRate =
-                        1.0;
+                if (data.type === 'pause') {
 
                     videoPlayer.pause();
+                    videoPlayer.playbackRate = 1;
 
-                    playPauseBtn.textContent =
-                        '▶ Грати';
+                    return;
                 }
 
 
-                /* RESTART */
-
-                else if (
-                    msg.type === 'restart'
-                ) {
-
-                    videoPlayer.playbackRate =
-                        1.0;
-
-                    videoPlayer.muted =
-                        false;
-
-                    ignoreSeekEvent = true;
+                if (data.type === 'restart') {
 
                     try {
                         videoPlayer.currentTime = 0;
                     } catch (e) {}
 
-                    ignoreSeekEvent = false;
-
                     videoPlayer.play()
                         .catch(() => {});
 
-                    playPauseBtn.textContent =
-                        '❚❚ Пауза';
+                    return;
+                }
+            }
 
-                    startAntiSleepAudio();
 
+            /* -------------------------
+               HOST RECEIVES
+               ------------------------- */
+
+            if (isHost) {
+
+                if (data.type === 'seek_request') {
+
+                    const t =
+                        parseFloat(data.time);
 
                     if (
-                        isHost &&
-                        videoModeSelect.value ===
-                        'stream'
+                        Number.isFinite(t) &&
+                        Number.isFinite(
+                            videoPlayer.duration
+                        )
                     ) {
 
-                        startStreaming();
-                    }
-                }
-
-
-                /* SEEK */
-
-                else if (
-                    msg.type ===
-                    'seek'
-                ) {
-
-                    if (
-                        isFinite(msg.time)
-                    ) {
-
-                        /*
-                         * У stream режимі S10
-                         * не намагається керувати
-                         * currentTime MediaStream.
-                         *
-                         * Host керує реальним відео.
-                         */
-
-                        if (
-                            !videoPlayer.srcObject ||
-                            isHost
-                        ) {
-
-                            ignoreSeekEvent =
-                                true;
-
-                            try {
-
-                                videoPlayer.currentTime =
-                                    Math.max(
-                                        0,
-                                        msg.time
-                                    );
-
-                            } catch (e) {}
-
-                            ignoreSeekEvent =
-                                false;
-                        }
-                    }
-                }
-
-
-                /* SEEK REQUEST */
-
-                else if (
-                    msg.type ===
-                    'seek_request'
-                ) {
-
-                    /*
-                     * Тільки Host приймає
-                     * перемотування від Client.
-                     */
-
-                    if (isHost) {
-
-                        const newTime =
+                        videoPlayer.currentTime =
                             Math.max(
                                 0,
                                 Math.min(
-                                    isFinite(
-                                        videoPlayer.duration
-                                    )
-                                        ? videoPlayer.duration
-                                        : msg.time,
-                                    msg.time
+                                    t,
+                                    videoPlayer.duration
                                 )
                             );
 
-
-                        ignoreSeekEvent =
-                            true;
-
-                        try {
-                            videoPlayer.currentTime =
-                                newTime;
-                        } catch (e) {}
-
-                        ignoreSeekEvent =
-                            false;
-
-
-                        if (
-                            conn &&
-                            conn.open
-                        ) {
-
-                            conn.send(
-                                JSON.stringify({
-                                    type: 'seek',
-                                    time: newTime
-                                })
-                            );
-                        }
-
-
-                        sendSyncState();
-                    }
-                }
-
-
-                /* SYNC */
-
-                else if (
-                    msg.type ===
-                    'sync_state' &&
-                    !isHost
-                ) {
-
-                    if (
-                        msg.duration > 0 &&
-                        videoPlayer.duration
-                    ) {
-
-                        timeDisplay.textContent =
-                            `${formatTime(
+                        sendToClient({
+                            type: 'seek',
+                            time:
                                 videoPlayer.currentTime
-                            )} / ${formatTime(
-                                msg.duration
-                            )}`;
+                        });
+
+                        sendHostSync();
                     }
 
-
-                    /*
-                     * Stream:
-                     * currentTime може бути
-                     * доступний лише як приблизна
-                     * позиція, тому не робимо
-                     * жорсткий seek.
-                     */
-
-                    if (
-                        videoPlayer.srcObject
-                    ) {
-
-                        if (
-                            !videoPlayer.paused &&
-                            !msg.paused
-                        ) {
-
-                            const diff =
-                                videoPlayer.currentTime -
-                                msg.time;
-
-
-                            if (
-                                Math.abs(diff) >
-                                0.08
-                            ) {
-
-                                if (
-                                    diff > 0
-                                ) {
-
-                                    videoPlayer.playbackRate =
-                                        0.985;
-
-                                } else {
-
-                                    videoPlayer.playbackRate =
-                                        1.015;
-                                }
-
-                            } else {
-
-                                videoPlayer.playbackRate =
-                                    1.0;
-                            }
-                        }
-
-                        return;
-                    }
-
-
-                    /*
-                     * LOCAL MODE
-                     */
-
-                    if (
-                        !videoPlayer.paused &&
-                        !msg.paused &&
-                        !isDraggingTimeline
-                    ) {
-
-                        const diff =
-                            videoPlayer.currentTime -
-                            msg.time;
-
-
-                        /*
-                         * Великий зсув:
-                         * точне вирівнювання.
-                         */
-
-                        if (
-                            Math.abs(diff) >
-                            0.35
-                        ) {
-
-                            ignoreSeekEvent =
-                                true;
-
-                            try {
-
-                                videoPlayer.currentTime =
-                                    msg.time;
-
-                            } catch (e) {}
-
-                            ignoreSeekEvent =
-                                false;
-
-                            videoPlayer.playbackRate =
-                                1.0;
-                        }
-
-
-                        /*
-                         * Малий зсув:
-                         * дуже м'яке прискорення
-                         */
-
-                        else if (
-                            diff > 0.06
-                        ) {
-
-                            videoPlayer.playbackRate =
-                                0.985;
-
-                        }
-
-
-                        else if (
-                            diff < -0.06
-                        ) {
-
-                            videoPlayer.playbackRate =
-                                1.015;
-
-                        }
-
-
-                        else {
-
-                            videoPlayer.playbackRate =
-                                1.0;
-                        }
-                    }
-
-
-                    /*
-                     * Якщо Host поставив на паузу
-                     */
-
-                    if (
-                        msg.paused &&
-                        !videoPlayer.paused
-                    ) {
-
-                        videoPlayer.pause();
-
-                        videoPlayer.playbackRate =
-                            1.0;
-
-                        playPauseBtn.textContent =
-                            '▶ Грати';
-                    }
-
-
-                    /*
-                     * Якщо Host запустив
-                     */
-
-                    if (
-                        !msg.paused &&
-                        videoPlayer.paused
-                    ) {
-
-                        videoPlayer.play()
-                            .catch(() => {});
-
-                        playPauseBtn.textContent =
-                            '❚❚ Пауза';
-                    }
+                    return;
                 }
 
-            } catch (e) {}
 
+                if (data.type === 'play_request') {
+
+                    videoPlayer.play()
+                        .then(() => {
+
+                            sendToClient({
+                                type: 'play'
+                            });
+
+                            sendHostSync();
+
+                        })
+                        .catch(() => {});
+
+                    requestWakeLock();
+
+                    return;
+                }
+
+
+                if (data.type === 'pause_request') {
+
+                    videoPlayer.pause();
+
+                    sendToClient({
+                        type: 'pause'
+                    });
+
+                    sendHostSync();
+
+                    return;
+                }
+
+
+                if (data.type === 'restart_request') {
+
+                    try {
+                        videoPlayer.currentTime = 0;
+                    } catch (e) {}
+
+                    videoPlayer.play()
+                        .then(() => {
+
+                            sendToClient({
+                                type: 'restart'
+                            });
+
+                            sendHostSync();
+
+                        })
+                        .catch(() => {});
+
+                    return;
+                }
+            }
         }
     );
 
@@ -2169,1244 +1693,235 @@ function setupConnection() {
         'close',
         () => {
 
-            if (syncInterval) {
-                clearInterval(syncInterval);
-            }
+            isConnected = false;
 
-            if (wakeLockMonitor) {
-                clearInterval(wakeLockMonitor);
-            }
+            connectionInfo.textContent =
+                'Зʼєднання втрачено';
 
-            alert(
-                "З'єднання закрито"
+            setStatus(
+                'Зʼєднання втрачено'
             );
+        }
+    );
 
-            location.reload();
+
+    conn.on(
+        'error',
+        err => {
+
+            console.log(
+                'Connection error:',
+                err
+            );
         }
     );
 }
 
 
 /* =========================================================
-   VISIBILITY
-========================================================= */
+   START BUTTONS
+   ========================================================= */
 
-document.addEventListener(
-    'visibilitychange',
-    () => {
-
-        if (
-            document.visibilityState ===
-            'visible'
-        ) {
-
-            startAntiSleepAudio();
-
-            requestWakeLock();
-
-            startWakeLockMonitor();
-
-
-            if (
-                conn &&
-                conn.open &&
-                isHost &&
-                videoModeSelect.value ===
-                'stream'
-            ) {
-
-                startStreaming();
-            }
-        }
-    }
-);
-
-
-/* =========================================================
-   POSITION
-========================================================= */
-
-positionSelect.addEventListener(
-    'change',
-    () => {
-
-        sendScreenInfo();
-
-        updateVideoStyle();
-
-        saveSettings();
-    }
-);
-
-
-/* =========================================================
-   VIDEO STYLE
-========================================================= */
-
-videoPlayer.addEventListener(
-    'loadedmetadata',
-    () => {
-
-        updateVideoStyle();
-
-        if (isHost) {
-            sendVideoInfo();
-        }
-    }
-);
-
-
-function updateVideoStyle() {
-
-    const myWidth =
-        window.innerWidth;
-
-    const pWidth =
-        partnerWidth > 0
-            ? partnerWidth
-            : myWidth;
-
-
-    const position =
-        positionSelect.value;
-
-
-    const videoAspect =
-        (
-            videoPlayer.videoWidth &&
-            videoPlayer.videoHeight
-        )
-            ? videoPlayer.videoWidth /
-              videoPlayer.videoHeight
-            : 16 / 9;
-
-
-    const combinedWidth =
-        myWidth + pWidth;
-
-
-    const finalWidth =
-        combinedWidth *
-        videoScaleMultiplier;
-
-
-    const finalHeight =
-        finalWidth /
-        videoAspect;
-
-
-    const leftPos =
-        position === 'left'
-            ? videoOffsetX
-            : videoOffsetX - pWidth;
-
-
-    videoPlayer.style.width =
-        finalWidth + 'px';
-
-    videoPlayer.style.height =
-        finalHeight + 'px';
-
-
-    videoPlayer.style.transform =
-        `translate3d(${leftPos}px, ${videoOffsetY}px, 0)`;
-}
-
-
-window.addEventListener(
-    'resize',
-    updateVideoStyle
-);
-
-
-if (window.visualViewport) {
-
-    window.visualViewport.addEventListener(
-        'resize',
-        updateVideoStyle
-    );
-}
-
-
-/* =========================================================
-   PLAY / PAUSE
-========================================================= */
-
-playPauseBtn.addEventListener(
+startBtn.addEventListener(
     'click',
-    () => {
+    async () => {
 
         startAntiSleepAudio();
 
+        await requestWakeLock();
 
-        if (isHost) {
-
-            if (videoPlayer.paused) {
-
-                videoPlayer.playbackRate =
-                    1.0;
-
-                videoPlayer.muted =
-                    false;
-
-                videoPlayer.play()
-                    .catch(() => {});
-
-                playPauseBtn.textContent =
-                    '❚❚ Пауза';
+        createHost();
+    }
+);
 
 
-                if (conn && conn.open) {
+connectBtn.addEventListener(
+    'click',
+    async () => {
 
-                    conn.send(
-                        JSON.stringify({
-                            type: 'play'
-                        })
-                    );
-                }
+        startAntiSleepAudio();
 
+        await requestWakeLock();
 
-                if (
-                    videoModeSelect.value ===
-                    'stream'
-                ) {
-
-                    startStreaming();
-                }
-
-            } else {
-
-                videoPlayer.pause();
-
-                playPauseBtn.textContent =
-                    '▶ Грати';
-
-
-                if (conn && conn.open) {
-
-                    conn.send(
-                        JSON.stringify({
-                            type: 'pause'
-                        })
-                    );
-                }
-            }
-
-
-            sendSyncState();
-
-        } else {
-
-            /*
-             * S10 не змінює стан самостійно.
-             * Він просить Host.
-             */
-
-            if (conn && conn.open) {
-
-                conn.send(
-                    JSON.stringify({
-                        type:
-                            videoPlayer.paused
-                                ? 'play_request'
-                                : 'pause_request'
-                    })
-                );
-            }
-        }
+        connectClient();
     }
 );
 
 
 /* =========================================================
-   REQUEST PLAY / PAUSE FROM CLIENT
-========================================================= */
+   PLAY / PAUSE / RESTART
+   ========================================================= */
 
-function handlePlaybackRequest(msg) {
+playBtn.addEventListener(
+    'click',
+    async () => {
 
-    if (!isHost) {
-        return;
-    }
+        await requestWakeLock();
 
-
-    if (
-        msg.type ===
-        'play_request'
-    ) {
-
-        videoPlayer.playbackRate =
-            1.0;
-
-        videoPlayer.play()
-            .catch(() => {});
-
-        playPauseBtn.textContent =
-            '❚❚ Пауза';
-
-
-        if (conn && conn.open) {
-
-            conn.send(
-                JSON.stringify({
-                    type: 'play'
-                })
-            );
-        }
-
-
-        if (
-            videoModeSelect.value ===
-            'stream'
-        ) {
-
-            startStreaming();
-        }
-
-    }
-
-
-    else if (
-        msg.type ===
-        'pause_request'
-    ) {
-
-        videoPlayer.pause();
-
-        videoPlayer.playbackRate =
-            1.0;
-
-        playPauseBtn.textContent =
-            '▶ Грати';
-
-
-        if (conn && conn.open) {
-
-            conn.send(
-                JSON.stringify({
-                    type: 'pause'
-                })
-            );
-        }
-    }
-
-
-    sendSyncState();
-}
-
-
-/*
- * Додаємо обробку play_request/pause_request
- * до існуючого data-потоку.
- *
- * Для цього використовуємо окремий
- * listener нижче.
- */
-
-function setupPlaybackRequestListener() {
-
-    if (!conn) return;
-
-    conn.on(
-        'data',
-        (data) => {
+        if (isHost) {
 
             try {
 
-                const msg =
-                    JSON.parse(data);
+                await videoPlayer.play();
 
-                if (
-                    msg.type ===
-                    'play_request' ||
-                    msg.type ===
-                    'pause_request'
-                ) {
+                sendToClient({
+                    type: 'play'
+                });
 
-                    handlePlaybackRequest(
-                        msg
-                    );
-                }
+                sendHostSync();
 
             } catch (e) {}
+
+        } else {
+
+            sendToHost({
+                type: 'play_request'
+            });
         }
-    );
-}
+    }
+);
 
 
-/* =========================================================
-   RESTART
-========================================================= */
-
-restartBtn.addEventListener(
+pauseBtn.addEventListener(
     'click',
     () => {
 
-        startAntiSleepAudio();
+        if (isHost) {
 
+            videoPlayer.pause();
 
-        if (!isHost) {
+            sendToClient({
+                type: 'pause'
+            });
 
-            if (conn && conn.open) {
+            sendHostSync();
 
-                conn.send(
-                    JSON.stringify({
-                        type:
-                            'restart_request'
-                    })
-                );
-            }
+        } else {
 
-            return;
+            sendToHost({
+                type: 'pause_request'
+            });
         }
+    }
+);
 
 
-        videoPlayer.playbackRate =
-            1.0;
+restartBtn.addEventListener(
+    'click',
+    async () => {
 
-        videoPlayer.muted =
-            false;
+        await requestWakeLock();
 
+        if (isHost) {
 
-        ignoreSeekEvent =
-            true;
+            videoPlayer.currentTime = 0;
 
-        try {
-            videoPlayer.currentTime =
-                0;
-        } catch (e) {}
+            try {
 
-        ignoreSeekEvent =
-            false;
+                await videoPlayer.play();
 
-
-        videoPlayer.play()
-            .catch(() => {});
-
-        playPauseBtn.textContent =
-            '❚❚ Пауза';
-
-
-        if (conn && conn.open) {
-
-            conn.send(
-                JSON.stringify({
+                sendToClient({
                     type: 'restart'
-                })
-            );
+                });
+
+                sendHostSync();
+
+            } catch (e) {}
+
+        } else {
+
+            sendToHost({
+                type: 'restart_request'
+            });
         }
+    }
+);
 
 
-        if (
-            videoModeSelect.value ===
-            'stream'
-        ) {
+/* =========================================================
+   VIDEO EVENTS
+   ========================================================= */
 
-            startStreaming();
+videoPlayer.addEventListener(
+    'play',
+    () => {
+
+        requestWakeLock();
+
+        if (isHost &&
+            isConnected) {
+
+            sendToClient({
+                type: 'play'
+            });
+
+            sendHostSync();
         }
+    }
+);
 
 
-        sendSyncState();
+videoPlayer.addEventListener(
+    'pause',
+    () => {
+
+        if (isHost &&
+            isConnected) {
+
+            sendToClient({
+                type: 'pause'
+            });
+
+            sendHostSync();
+        }
+    }
+);
+
+
+videoPlayer.addEventListener(
+    'seeked',
+    () => {
+
+        updateTimeline();
+
+        if (isHost &&
+            isConnected) {
+
+            sendToClient({
+                type: 'seek',
+                time:
+                    videoPlayer.currentTime
+            });
+
+            sendHostSync();
+        }
     }
 );
 
 
 /* =========================================================
    FULLSCREEN
-========================================================= */
+   ========================================================= */
 
 fullscreenBtn.addEventListener(
     'click',
-    () => {
+    async () => {
 
-        const elem =
-            document.documentElement;
+        await requestWakeLock();
 
+        try {
 
-        if (!document.fullscreenElement) {
+            if (!document.fullscreenElement) {
 
-            if (elem.requestFullscreen) {
+                await document.documentElement
+                    .requestFullscreen();
 
-                elem.requestFullscreen()
-                    .catch(() => {});
+            } else {
+
+                await document.exitFullscreen();
             }
 
-        } else {
-
-            if (document.exitFullscreen) {
-
-                document.exitFullscreen()
-                    .catch(() => {});
-            }
-        }
-    }
-);
-
-
-/* =========================================================
-   PLAYER CLICK
-========================================================= */
-
-playerScreen.addEventListener(
-    'click',
-    (e) => {
-
-        startAntiSleepAudio();
-
-
-        if (hasSwiped) {
-
-            hasSwiped =
-                false;
-
-            return;
-        }
-
-
-        if (
-            !playerControls.contains(
-                e.target
-            )
-        ) {
-
-            playerControls.style.display =
-                playerControls.style.display ===
-                'none'
-                    ? 'flex'
-                    : 'none';
-        }
-    }
-);
-
-
-/* =========================================================
-   FORMAT TIME
-========================================================= */
-
-function formatTime(seconds) {
-
-    if (
-        isNaN(seconds) ||
-        !isFinite(seconds)
-    ) {
-        return '00:00';
-    }
-
-
-    const mins =
-        Math.floor(
-            seconds / 60
-        );
-
-    const secs =
-        Math.floor(
-            seconds % 60
-        );
-
-
-    return (
-        `${mins < 10 ? '0' : ''}${mins}:` +
-        `${secs < 10 ? '0' : ''}${secs}`
-    );
-}
-
-
-/* =========================================================
-   TIME UPDATE
-========================================================= */
-
-videoPlayer.addEventListener(
-    'timeupdate',
-    () => {
-
-        if (
-            isDraggingTimeline
-        ) {
-            return;
-        }
-
-
-        if (
-            videoPlayer.duration &&
-            isFinite(videoPlayer.duration)
-        ) {
-
-            const progress =
-                (
-                    videoPlayer.currentTime /
-                    videoPlayer.duration
-                ) * 100;
-
-
-            /*
-             * У Stream режимі Host
-             * теж показує свою позицію.
-             */
-
-            if (
-                isHost ||
-                !videoPlayer.srcObject
-            ) {
-
-                timelineRange.value =
-                    progress;
-            }
-
-
-            timeDisplay.textContent =
-                `${formatTime(
-                    videoPlayer.currentTime
-                )} / ${formatTime(
-                    videoPlayer.duration
-                )}`;
-        }
-    }
-);
-
-
-/* =========================================================
-   METADATA
-========================================================= */
-
-videoPlayer.addEventListener(
-    'loadedmetadata',
-    () => {
-
-        if (
-            videoPlayer.duration &&
-            isFinite(videoPlayer.duration)
-        ) {
-
-            timelineRange.max =
-                100;
-
-            timelineRange.value =
-                0;
-
-            timeDisplay.textContent =
-                `00:00 / ${formatTime(
-                    videoPlayer.duration
-                )}`;
-        }
-
-
-        if (isHost) {
-            sendVideoInfo();
-        }
-    }
-);
-
-
-/* =========================================================
-   TIMELINE TOUCH / MOUSE
-========================================================= */
-
-timelineRange.addEventListener(
-    'mousedown',
-    () => {
-
-        isDraggingTimeline =
-            true;
-    }
-);
-
-
-timelineRange.addEventListener(
-    'touchstart',
-    () => {
-
-        isDraggingTimeline =
-            true;
-    },
-    {
-        passive: true
-    }
-);
-
-
-/* =========================================================
-   TIMELINE INPUT
-========================================================= */
-
-timelineRange.addEventListener(
-    'input',
-    () => {
-
-        /*
-         * LOCAL VIDEO
-         */
-
-        if (
-            videoPlayer.duration &&
-            isFinite(videoPlayer.duration)
-        ) {
-
-            const newTime =
-                (
-                    timelineRange.value /
-                    100
-                ) *
-                videoPlayer.duration;
-
-
-            timeDisplay.textContent =
-                `${formatTime(
-                    newTime
-                )} / ${formatTime(
-                    videoPlayer.duration
-                )}`;
-        }
-    }
-);
-
-
-/* =========================================================
-   TIMELINE CHANGE
-========================================================= */
-
-timelineRange.addEventListener(
-    'change',
-    () => {
-
-        isDraggingTimeline =
-            false;
-
-
-        const duration =
-            videoPlayer.duration;
-
-
-        if (
-            !isFinite(duration) ||
-            duration <= 0
-        ) {
-            return;
-        }
-
-
-        const newTime =
-            (
-                parseFloat(
-                    timelineRange.value
-                ) / 100
-            ) * duration;
-
-
-        /*
-         * HOST
-         */
-
-        if (isHost) {
-
-            ignoreSeekEvent =
-                true;
-
-            try {
-
-                videoPlayer.currentTime =
-                    newTime;
-
-            } catch (e) {}
-
-            ignoreSeekEvent =
-                false;
-
-
-            videoPlayer.playbackRate =
-                1.0;
-
-
-            if (
-                conn &&
-                conn.open
-            ) {
-
-                conn.send(
-                    JSON.stringify({
-                        type: 'seek',
-                        time: newTime
-                    })
-                );
-            }
-
-
-            sendSyncState();
-
-            return;
-        }
-
-
-        /*
-         * CLIENT LOCAL MODE
-         */
-
-        if (
-            !videoPlayer.srcObject
-        ) {
-
-            /*
-             * Візуально одразу ставимо
-             * час на S10.
-             */
-
-            ignoreSeekEvent =
-                true;
-
-            try {
-
-                videoPlayer.currentTime =
-                    newTime;
-
-            } catch (e) {}
-
-            ignoreSeekEvent =
-                false;
-        }
-
-
-        /*
-         * У stream mode S10
-         * відправляє запит Host.
-         */
-
-        if (
-            conn &&
-            conn.open
-        ) {
-
-            conn.send(
-                JSON.stringify({
-                    type:
-                        'seek_request',
-                    time:
-                        newTime
-                })
-            );
-        }
-
-
-        videoPlayer.playbackRate =
-            1.0;
-    }
-);
-
-
-timelineRange.addEventListener(
-    'mouseup',
-    () => {
-
-        isDraggingTimeline =
-            false;
-    }
-);
-
-
-timelineRange.addEventListener(
-    'touchend',
-    () => {
-
-        isDraggingTimeline =
-            false;
-    }
-);
-
-
-/* =========================================================
-   VOLUME SWIPE
-========================================================= */
-
-playerScreen.addEventListener(
-    'touchstart',
-    (e) => {
-
-        startAntiSleepAudio();
-
-
-        if (
-            playerControls.contains(
-                e.target
-            )
-        ) {
-            return;
-        }
-
-
-        if (
-            e.touches.length === 1
-        ) {
-
-            isSwipingVolume =
-                true;
-
-            touchStartY =
-                e.touches[0].clientY;
-
-            touchStartX =
-                e.touches[0].clientX;
-
-            touchStartVolume =
-                videoPlayer.volume;
-
-            hasSwiped =
-                false;
-        }
-
-    },
-    {
-        passive: true
-    }
-);
-
-
-playerScreen.addEventListener(
-    'touchmove',
-    (e) => {
-
-        if (
-            !isSwipingVolume ||
-            e.touches.length !== 1
-        ) {
-            return;
-        }
-
-
-        const diffY =
-            touchStartY -
-            e.touches[0].clientY;
-
-        const diffX =
-            touchStartX -
-            e.touches[0].clientX;
-
-
-        if (
-            Math.abs(diffY) > 10 ||
-            Math.abs(diffX) > 10
-        ) {
-
-            hasSwiped =
-                true;
-        }
-
-
-        if (hasSwiped) {
-
-            const newVolume =
-                Math.max(
-                    0,
-                    Math.min(
-                        1,
-                        touchStartVolume +
-                        (
-                            diffY /
-                            window.innerHeight
-                        ) * 1.5
-                    )
-                );
-
-
-            videoPlayer.volume =
-                newVolume;
-
-
-            showVolumeIndicator(
-                Math.round(
-                    newVolume * 100
-                )
-            );
-        }
-
-    },
-    {
-        passive: true
-    }
-);
-
-
-playerScreen.addEventListener(
-    'touchend',
-    () => {
-
-        isSwipingVolume =
-            false;
-    }
-);
-
-
-/* =========================================================
-   VOLUME INDICATOR
-========================================================= */
-
-function showVolumeIndicator(
-    volPercent
-) {
-
-    volumeIndicator.textContent =
-        `🔊 Гучність: ${volPercent}%`;
-
-    volumeIndicator.style.display =
-        'block';
-
-
-    if (volumeTimeout) {
-        clearTimeout(volumeTimeout);
-    }
-
-
-    volumeTimeout =
-        setTimeout(
-            () => {
-
-                volumeIndicator.style.display =
-                    'none';
-
-            },
-            1000
-        );
-}
-
-
-/* =========================================================
-   SHIFT
-========================================================= */
-
-function applyShift(
-    dx,
-    dy
-) {
-
-    videoOffsetX += dx;
-    videoOffsetY += dy;
-
-    updateVideoStyle();
-    updateCalibrationStyle();
-
-    saveSettings();
-}
-
-
-/* =========================================================
-   SCALE
-========================================================= */
-
-function applyScale(ds) {
-
-    videoScaleMultiplier =
-        Math.max(
-            0.1,
-            Math.min(
-                5.0,
-                videoScaleMultiplier + ds
-            )
-        );
-
-
-    updateVideoStyle();
-
-    updateCalibrationStyle();
-
-    saveSettings();
-}
-
-
-/* =========================================================
-   BUTTONS
-========================================================= */
-
-document
-    .getElementById('playerSaveBtn')
-    .addEventListener(
-        'click',
-        saveSettings
-    );
-
-
-document
-    .getElementById('calibShiftUp')
-    .addEventListener(
-        'click',
-        () => applyShift(0, -4)
-    );
-
-
-document
-    .getElementById('calibShiftDown')
-    .addEventListener(
-        'click',
-        () => applyShift(0, 4)
-    );
-
-
-document
-    .getElementById('calibShiftLeft')
-    .addEventListener(
-        'click',
-        () => applyShift(-4, 0)
-    );
-
-
-document
-    .getElementById('calibShiftRight')
-    .addEventListener(
-        'click',
-        () => applyShift(4, 0)
-    );
-
-
-document
-    .getElementById('calibScalePlus')
-    .addEventListener(
-        'click',
-        () => applyScale(0.02)
-    );
-
-
-document
-    .getElementById('calibScaleMinus')
-    .addEventListener(
-        'click',
-        () => applyScale(-0.02)
-    );
-
-
-document
-    .getElementById('calibReset')
-    .addEventListener(
-        'click',
-        () => {
-
-            videoOffsetX = 0;
-            videoOffsetY = 0;
-            videoScaleMultiplier = 1.0;
-
-            updateVideoStyle();
-            updateCalibrationStyle();
-
-            saveSettings();
-        }
-    );
-
-
-document
-    .getElementById('shiftUpBtn')
-    .addEventListener(
-        'click',
-        () => applyShift(0, -4)
-    );
-
-
-/*
- * ВИПРАВЛЕНО:
- * залишений тільки один shiftDownBtn
- */
-
-document
-    .getElementById('shiftDownBtn')
-    .addEventListener(
-        'click',
-        () => applyShift(0, 4)
-    );
-
-
-document
-    .getElementById('shiftLeftBtn')
-    .addEventListener(
-        'click',
-        () => applyShift(-4, 0)
-    );
-
-
-document
-    .getElementById('shiftRightBtn')
-    .addEventListener(
-        'click',
-        () => applyShift(4, 0)
-    );
-
-
-document
-    .getElementById('scalePlusBtn')
-    .addEventListener(
-        'click',
-        () => applyScale(0.02)
-    );
-
-
-document
-    .getElementById('scaleMinusBtn')
-    .addEventListener(
-        'click',
-        () => applyScale(-0.02)
-    );
-
-
-document
-    .getElementById('resetShiftBtn')
-    .addEventListener(
-        'click',
-        () => {
-
-            videoOffsetX = 0;
-            videoOffsetY = 0;
-            videoScaleMultiplier = 1.0;
-
-            updateVideoStyle();
-            updateCalibrationStyle();
-
-            saveSettings();
-        }
-    );
-
-
-/* =========================================================
-   ДОДАТКОВА ОБРОБКА КОМАНД КЛІЄНТА
-========================================================= */
-
-const originalSetupConnection =
-    setupConnection;
-
-
-/*
- * Не використовуємо тут додатковий
- * listener, щоб не створювати дублювання
- * основного каналу.
- *
- * Замість цього перехоплюємо повідомлення
- * через окремий простий канал нижче.
- */
-
-
-/* =========================================================
-   WAKE LOCK ПІСЛЯ ЗАПУСКУ
-========================================================= */
-
-window.addEventListener(
-    'pageshow',
-    () => {
-
-        if (
-            document.visibilityState ===
-            'visible'
-        ) {
-
-            startAntiSleepAudio();
-
-            requestWakeLock();
-
-            startWakeLockMonitor();
-        }
-    }
-);
-
-
-/* =========================================================
-   ПОВТОРНИЙ WAKE LOCK ПРИ PLAY
-========================================================= */
-
-videoPlayer.addEventListener(
-    'play',
-    () => {
-
-        startAntiSleepAudio();
+        } catch (e) {}
 
         requestWakeLock();
     }
@@ -3414,12 +1929,146 @@ videoPlayer.addEventListener(
 
 
 /* =========================================================
-   ЗАПУСК MONITOR
-========================================================= */
+   HIDE / SHOW CONTROLS
+   ========================================================= */
 
-startWakeLockMonitor();
+let controlsTimer = null;
+
+
+function showControls() {
+
+    controls.classList.remove(
+        'hidden'
+    );
+
+    if (controlsTimer) {
+        clearTimeout(controlsTimer);
+    }
+
+    controlsTimer =
+        setTimeout(
+            () => {
+
+                if (!calibration.classList.contains('show')) {
+
+                    controls.classList.add(
+                        'hidden'
+                    );
+                }
+
+            },
+            4000
+        );
+}
+
+
+document.getElementById('app')
+    .addEventListener(
+        'click',
+        event => {
+
+            if (
+                event.target.closest(
+                    '#controls'
+                ) ||
+                event.target.closest(
+                    '#calibration'
+                )
+            ) {
+                return;
+            }
+
+            if (
+                startScreen.classList.contains(
+                    'hidden'
+                )
+            ) {
+
+                if (
+                    controls.classList.contains(
+                        'hidden'
+                    )
+                ) {
+
+                    showControls();
+
+                } else {
+
+                    controls.classList.add(
+                        'hidden'
+                    );
+                }
+            }
+        }
+    );
+
+
+showControls();
+
+
+/* =========================================================
+   INITIALIZATION
+   ========================================================= */
+
+roomCodeInput.addEventListener(
+    'input',
+    () => {
+
+        roomCodeInput.value =
+            roomCodeInput.value
+                .replace(/\D/g, '')
+                .slice(0, 5);
+    }
+);
+
+
+document.addEventListener(
+    'click',
+    () => {
+
+        /*
+         * Це важливо:
+         * Wake Lock найнадійніше отримується
+         * після реальної дії користувача.
+         */
+        requestWakeLock();
+
+    },
+    {
+        passive: true
+    }
+);
+
+
+window.addEventListener(
+    'beforeunload',
+    () => {
+
+        if (syncTimer) {
+            clearInterval(syncTimer);
+        }
+
+        if (wakeLock) {
+
+            try {
+                wakeLock.release();
+            } catch (e) {}
+        }
+
+        if (peer) {
+
+            try {
+                peer.destroy();
+            } catch (e) {}
+        }
+    }
+);
+
+
+updateCalibrationUI();
+updateTimeline();
 
 </script>
 
 </body>
-  </html>
+</html>
