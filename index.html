@@ -188,18 +188,6 @@ video.vid-el {
     z-index: -1;
 }
 
-/* Прихований canvas для 720p / 30fps P2P */
-#streamCanvas {
-    position: fixed;
-    width: 1px;
-    height: 1px;
-    right: -20px;
-    bottom: -20px;
-    opacity: 0.001;
-    pointer-events: none;
-    z-index: -2;
-}
-
 .controls {
     position: absolute;
     bottom: 8px;
@@ -507,8 +495,6 @@ margin-bottom:2px;
     preload="auto"
 ></video>
 
-<canvas id="streamCanvas" width="1280" height="720"></canvas>
-
 <div id="volumeIndicator">
 🔊 Гучність: 100%
 </div>
@@ -633,15 +619,6 @@ document.getElementById('videoPlayer');
 const keepAwakeVideo =
 document.getElementById('keepAwakeVideo');
 
-const streamCanvas =
-document.getElementById('streamCanvas');
-
-const streamCanvasCtx =
-streamCanvas.getContext('2d', {
-    alpha: false,
-    desynchronized: true
-});
-
 const playerControls =
 document.getElementById('playerControls');
 
@@ -719,7 +696,7 @@ document.getElementById('changeVideoBtn');
 
 
 /* =========================================================
-   ОСНОВНІ ЗМІННІ
+   GLOBAL
 ========================================================= */
 
 let peer = null;
@@ -761,22 +738,40 @@ let remoteVideoTime = 0;
 let remoteVideoPaused = true;
 
 
-/* =========================================================
-   720p / 30 FPS STREAM
-========================================================= */
+/*
+   Зміна покоління відеопотоку.
+   Кожен новий файл отримує новий номер.
+*/
+let streamGeneration = 0;
 
+
+/*
+   Чи зараз відбувається зміна відео.
+*/
+let videoChangeInProgress = false;
+
+
+/*
+   На Client цей прапорець означає,
+   що старий потік уже треба ігнорувати.
+*/
+let waitingForNewStream = false;
+
+
+/*
+   ID поточного віддаленого виклику.
+*/
+let remoteCallGeneration = 0;
+
+
+/*
+   Параметри оптимізації WebRTC.
+*/
 const STREAM_WIDTH = 1280;
 const STREAM_HEIGHT = 720;
 const STREAM_FPS = 30;
+const STREAM_MAX_BITRATE = 3000000;
 
-let streamCanvasStream = null;
-let streamDrawTimer = null;
-let streamDrawing = false;
-
-
-/* =========================================================
-   PEER OPTIONS
-========================================================= */
 
 const peerOptions = {
     debug: 1,
@@ -791,6 +786,36 @@ const peerOptions = {
         ]
     }
 };
+
+
+/* =========================================================
+   SAFE SEND
+========================================================= */
+
+function sendMessage(message) {
+
+    if (
+        !conn ||
+        !conn.open
+    ) {
+        return false;
+    }
+
+    try {
+
+        conn.send(
+            JSON.stringify(message)
+        );
+
+        return true;
+
+    } catch (e) {
+
+        return false;
+
+    }
+
+}
 
 
 /* =========================================================
@@ -1297,16 +1322,6 @@ videoInput.addEventListener(
             return;
         }
 
-        if (localVideoBlobUrl) {
-
-            try {
-                URL.revokeObjectURL(
-                    localVideoBlobUrl
-                );
-            } catch (e) {}
-
-        }
-
         localVideoBlobUrl =
             URL.createObjectURL(file);
 
@@ -1332,7 +1347,7 @@ videoInput.addEventListener(
 
 
 /* =========================================================
-   CHANGE VIDEO
+   CHANGE VIDEO BUTTON
 ========================================================= */
 
 changeVideoBtn.addEventListener(
@@ -1352,7 +1367,31 @@ changeVideoBtn.addEventListener(
 
 
 /* =========================================================
-   ПІДГОТОВКА НОВОГО ВІДЕО
+   CLOSE OLD STREAM
+========================================================= */
+
+function closeActiveCall() {
+
+    if (activeCall) {
+
+        try {
+            activeCall.close();
+        } catch (e) {}
+
+        /*
+           Дуже важливо:
+           не чекаємо callback close().
+           Одразу дозволяємо створення нового call.
+        */
+        activeCall = null;
+
+    }
+
+}
+
+
+/* =========================================================
+   CLIENT CLEAR OLD VIDEO
 ========================================================= */
 
 function clearRemoteVideo() {
@@ -1377,7 +1416,8 @@ function clearRemoteVideo() {
     remoteVideoTime = 0;
     remoteVideoPaused = true;
 
-    timelineRange.value = 0;
+    timelineRange.value =
+        0;
 
     timeDisplay.textContent =
         '00:00 / 00:00';
@@ -1385,103 +1425,13 @@ function clearRemoteVideo() {
     playPauseBtn.textContent =
         '▶ Грати';
 
-}
-
-
-/* =========================================================
-   720p / 30 FPS CANVAS STREAM
-========================================================= */
-
-function stopCanvasStream() {
-
-    if (streamDrawTimer) {
-
-        clearInterval(
-            streamDrawTimer
-        );
-
-        streamDrawTimer = null;
-
-    }
-
-    streamDrawing = false;
-
-}
-
-
-function startCanvasStream() {
-
-    stopCanvasStream();
-
-    if (!isHost) {
-        return null;
-    }
-
-    try {
-
-        streamCanvas.width =
-            STREAM_WIDTH;
-
-        streamCanvas.height =
-            STREAM_HEIGHT;
-
-        /*
-           Малюємо рівно 30 разів на секунду.
-           Це не залежить від того, чи вихідне
-           відео має 30, 60 або більше кадрів.
-        */
-
-        streamDrawTimer =
-            setInterval(
-                () => {
-
-                    if (
-                        videoPlayer.readyState >= 2 &&
-                        !videoPlayer.paused &&
-                        videoPlayer.videoWidth > 0 &&
-                        videoPlayer.videoHeight > 0
-                    ) {
-
-                        try {
-
-                            streamCanvasCtx.drawImage(
-                                videoPlayer,
-                                0,
-                                0,
-                                STREAM_WIDTH,
-                                STREAM_HEIGHT
-                            );
-
-                        } catch (e) {}
-
-                    }
-
-                },
-                1000 / STREAM_FPS
-            );
-
-        if (!streamCanvasStream) {
-
-            streamCanvasStream =
-                streamCanvas.captureStream(
-                    STREAM_FPS
-                );
-
-        }
-
-        return streamCanvasStream;
-
-    } catch (e) {
-
-        return null;
-
-    }
+    updateVideoStyle();
 
 }
 
 
 /* =========================================================
-   CHANGE VIDEO HANDLER
+   HOST CHANGE VIDEO
 ========================================================= */
 
 newVideoInput.addEventListener(
@@ -1500,54 +1450,79 @@ newVideoInput.addEventListener(
 
 
         /*
-           Повідомляємо S10, що старий потік
-           зараз буде закритий.
+           Тільки stream-режим потребує
+           зміни потоку на S10.
         */
+        const isStreaming =
+            videoModeSelect.value === 'stream';
 
-        sendMessage({
-            type:
-                'video_change_start'
-        });
+
+        videoChangeInProgress =
+            true;
 
 
         /*
-           Закриваємо старий WebRTC call.
+           Нове покоління відео.
         */
+        streamGeneration++;
 
-        if (activeCall) {
 
-            try {
-                activeCall.close();
-            } catch (e) {}
+        const currentGeneration =
+            streamGeneration;
 
-            activeCall = null;
+
+        /*
+           Повідомляємо S10 ДО закриття старого потоку.
+        */
+        if (isStreaming) {
+
+            sendMessage({
+                type:
+                    'video_change_start',
+
+                generation:
+                    currentGeneration
+            });
 
         }
 
 
         /*
-           Зупиняємо старий canvas timer.
+           Закриваємо старий WebRTC call.
         */
+        if (isStreaming) {
 
-        stopCanvasStream();
+            closeActiveCall();
+
+        }
 
 
+        /*
+           Зупиняємо старе відео.
+        */
         try {
             videoPlayer.pause();
-        } catch (e) {}
+        } catch (err) {}
+
+
+        /*
+           Від'єднуємо старий srcObject.
+        */
+        try {
+            videoPlayer.srcObject = null;
+        } catch (err) {}
 
 
         /*
            Звільняємо старий Blob URL.
         */
-
         if (localVideoBlobUrl) {
 
             try {
                 URL.revokeObjectURL(
                     localVideoBlobUrl
                 );
-            } catch (e) {}
+            } catch (err) {}
 
         }
 
@@ -1556,140 +1531,202 @@ newVideoInput.addEventListener(
             URL.createObjectURL(file);
 
 
-        /*
-           Повністю очищуємо старе відео.
-        */
-
-        videoPlayer.srcObject =
-            null;
-
-        videoPlayer.removeAttribute(
-            'src'
-        );
-
-        videoPlayer.load();
-
-
-        /*
-           Встановлюємо нове відео.
-        */
-
         videoPlayer.src =
             localVideoBlobUrl;
 
         videoPlayer.load();
 
-        timelineRange.value =
+
+        videoPlayer.currentTime =
             0;
-
-        timeDisplay.textContent =
-            '00:00 / 00:00';
-
-
-        /*
-           Чекаємо metadata нового файла.
-        */
-
-        await new Promise(
-            (resolve) => {
-
-                if (
-                    videoPlayer.readyState >= 1
-                ) {
-
-                    resolve();
-                    return;
-
-                }
-
-                const handler =
-                    () => {
-
-                        videoPlayer.removeEventListener(
-                            'loadedmetadata',
-                            handler
-                        );
-
-                        resolve();
-
-                    };
-
-                videoPlayer.addEventListener(
-                    'loadedmetadata',
-                    handler
-                );
-
-            }
-        );
-
-
-        try {
-
-            videoPlayer.currentTime =
-                0;
-
-        } catch (e) {}
 
 
         videoPlayer.playbackRate =
             1;
 
 
+        videoPlayer.pause();
+
+
+        updateVideoStyle();
+
+
+        connectionStatus.textContent =
+            'Статус: Завантаження нового відео...';
+
+
+        /*
+           Чекаємо реального loadedmetadata.
+        */
+        const waitForMetadata =
+            new Promise((resolve) => {
+
+                let done = false;
+
+                const finish = () => {
+
+                    if (done) {
+                        return;
+                    }
+
+                    done = true;
+
+                    videoPlayer.removeEventListener(
+                        'loadedmetadata',
+                        finish
+                    );
+
+                    resolve();
+
+                };
+
+                videoPlayer.addEventListener(
+                    'loadedmetadata',
+                    finish
+                );
+
+
+                /*
+                   Запасний timeout.
+                */
+                setTimeout(
+                    finish,
+                    5000
+                );
+
+            });
+
+
+        await waitForMetadata;
+
+
+        if (
+            currentGeneration !==
+            streamGeneration
+        ) {
+            return;
+        }
+
+
         updateVideoStyle();
 
 
         /*
-           Повідомляємо S10 тривалість нового відео.
+           Оновлюємо таймлайн.
         */
-
-        sendMessage({
-
-            type:
-                'video_change_ready',
-
-            duration:
-                Number.isFinite(
-                    videoPlayer.duration
-                )
-                ?
+        if (
+            Number.isFinite(
                 videoPlayer.duration
-                :
-                0
+            ) &&
+            videoPlayer.duration > 0
+        ) {
 
-        });
+            timelineRange.value =
+                0;
+
+            timeDisplay.textContent =
+                `${formatTime(0)} / ${formatTime(videoPlayer.duration)}`;
+
+        }
 
 
         /*
-           Даємо WebRTC час повністю закрити
-           попередній call.
+           Повідомляємо S10,
+           що новий файл готовий.
         */
+        if (isStreaming) {
 
+            sendMessage({
+
+                type:
+                    'video_change_ready',
+
+                generation:
+                    currentGeneration,
+
+                duration:
+                    Number.isFinite(
+                        videoPlayer.duration
+                    )
+                    ?
+                    videoPlayer.duration
+                    :
+                    0
+
+            });
+
+        }
+
+
+        /*
+           Даємо старому PeerJS call
+           трохи часу остаточно закритися.
+        */
+        await new Promise(
+            resolve =>
+                setTimeout(
+                    resolve,
+                    800
+                )
+        );
+
+
+        if (
+            currentGeneration !==
+            streamGeneration
+        ) {
+            return;
+        }
+
+
+        /*
+           Створюємо НОВИЙ WebRTC потік.
+        */
+        if (isStreaming) {
+
+            startStreaming();
+
+        }
+
+
+        /*
+           Запускаємо нове відео.
+        */
+        videoPlayer.muted =
+            false;
+
+        videoPlayer.volume =
+            1;
+
+        videoPlayer.playbackRate =
+            1;
+
+
+        videoPlayer.play()
+            .catch(() => {});
+
+
+        playPauseBtn.textContent =
+            '❚❚ Пауза';
+
+
+        startAntiSleepAudio();
+
+
+        /*
+           Передаємо новий стан.
+        */
         setTimeout(
             () => {
 
-                startStreaming();
+                sendStreamState();
+                sendSyncState();
 
-                setTimeout(
-                    () => {
-
-                        videoPlayer.play()
-                            .catch(() => {});
-
-                        playPauseBtn.textContent =
-                            '❚❚ Пауза';
-
-                        sendStreamState();
-                        sendSyncState();
-
-                        startAntiSleepAudio();
-                        requestWakeLock();
-
-                    },
-                    300
-                );
+                videoChangeInProgress =
+                    false;
 
             },
-            600
+            500
         );
 
     }
@@ -1724,7 +1761,6 @@ startHostBtn.addEventListener(
 
     }
 );
-
 
 function startHostPeer() {
 
@@ -1867,12 +1903,32 @@ connectClientBtn.addEventListener(
             (call) => {
 
                 /*
-                   Якщо приходить новий call,
-                   старий remote stream більше
-                   не повинен залишатися на екрані.
+                   Якщо ми чекаємо новий потік,
+                   старий call вже не потрібен.
                 */
+                if (
+                    waitingForNewStream &&
+                    activeCall
+                ) {
 
-                if (activeCall && activeCall !== call) {
+                    try {
+                        activeCall.close();
+                    } catch (e) {}
+
+                    activeCall =
+                        null;
+
+                }
+
+
+                /*
+                   Закриваємо попередній call,
+                   якщо він ще існує.
+                */
+                if (
+                    activeCall &&
+                    activeCall !== call
+                ) {
 
                     try {
                         activeCall.close();
@@ -1880,16 +1936,44 @@ connectClientBtn.addEventListener(
 
                 }
 
-                call.answer();
 
                 activeCall =
                     call;
+
+
+                call.answer();
+
+
+                const thisCall =
+                    call;
+
 
                 call.on(
                     'stream',
                     (remoteStream) => {
 
-                        videoPlayer.pause();
+                        /*
+                           Якщо це старий call,
+                           не дозволяємо йому
+                           повернути старе відео.
+                        */
+                        if (
+                            activeCall !==
+                            thisCall
+                        ) {
+
+                            try {
+                                thisCall.close();
+                            } catch (e) {}
+
+                            return;
+
+                        }
+
+
+                        waitingForNewStream =
+                            false;
+
 
                         videoPlayer.src =
                             '';
@@ -1903,6 +1987,9 @@ connectClientBtn.addEventListener(
                         videoPlayer.volume =
                             1;
 
+                        videoPlayer.playbackRate =
+                            1;
+
                         videoPlayer.play()
                             .catch(() => {});
 
@@ -1910,15 +1997,37 @@ connectClientBtn.addEventListener(
 
                         requestWakeLock();
 
+                        updateVideoStyle();
+
                     }
                 );
+
 
                 call.on(
                     'close',
                     () => {
 
                         if (
-                            activeCall === call
+                            activeCall ===
+                            thisCall
+                        ) {
+
+                            activeCall =
+                                null;
+
+                        }
+
+                    }
+                );
+
+
+                call.on(
+                    'error',
+                    () => {
+
+                        if (
+                            activeCall ===
+                            thisCall
                         ) {
 
                             activeCall =
@@ -1934,40 +2043,6 @@ connectClientBtn.addEventListener(
 
     }
 );
-
-
-/* =========================================================
-   SEND MESSAGE
-========================================================= */
-
-function sendMessage(message) {
-
-    if (
-        conn &&
-        conn.open
-    ) {
-
-        try {
-
-            conn.send(
-                JSON.stringify(
-                    message
-                )
-            );
-
-            return true;
-
-        } catch (e) {
-
-            return false;
-
-        }
-
-    }
-
-    return false;
-
-}
 
 
 /* =========================================================
@@ -1999,7 +2074,127 @@ function sendScreenInfo() {
 
 
 /* =========================================================
-   STREAMING — 720p / 30 FPS
+   STREAM OPTIMIZATION
+========================================================= */
+
+async function optimizeOutgoingStream(
+    call
+) {
+
+    try {
+
+        if (!call) {
+            return;
+        }
+
+        const pc =
+            call.peerConnection;
+
+
+        if (!pc) {
+            return;
+        }
+
+
+        const senders =
+            pc.getSenders();
+
+
+        const videoSender =
+            senders.find(
+                sender =>
+                    sender.track &&
+                    sender.track.kind === 'video'
+            );
+
+
+        if (!videoSender) {
+            return;
+        }
+
+
+        /*
+           Намагання встановити 1280x720 / 30 fps
+           без зайвого перекодування.
+        */
+        if (
+            videoSender.track &&
+            videoSender.track.applyConstraints
+        ) {
+
+            try {
+
+                await videoSender.track.applyConstraints({
+
+                    width: {
+                        ideal:
+                            STREAM_WIDTH,
+
+                        max:
+                            STREAM_WIDTH
+                    },
+
+                    height: {
+                        ideal:
+                            STREAM_HEIGHT,
+
+                        max:
+                            STREAM_HEIGHT
+                    },
+
+                    frameRate: {
+                        ideal:
+                            STREAM_FPS,
+
+                        max:
+                            STREAM_FPS
+                    }
+
+                });
+
+            } catch (e) {}
+
+        }
+
+
+        /*
+           Обмежуємо WebRTC encoder:
+           максимум 30 fps та 3 Mbps.
+        */
+        try {
+
+            const parameters =
+                videoSender.getParameters();
+
+
+            if (
+                parameters &&
+                parameters.encodings &&
+                parameters.encodings.length
+            ) {
+
+                parameters.encodings[0].maxBitrate =
+                    STREAM_MAX_BITRATE;
+
+                parameters.encodings[0].maxFramerate =
+                    STREAM_FPS;
+
+
+                await videoSender.setParameters(
+                    parameters
+                );
+
+            }
+
+        } catch (e) {}
+
+    } catch (e) {}
+
+}
+
+
+/* =========================================================
+   STREAMING
 ========================================================= */
 
 function startStreaming() {
@@ -2013,24 +2208,95 @@ function startStreaming() {
 
     if (
         !conn ||
-        !conn.open ||
-        activeCall
+        !conn.open
     ) {
         return;
     }
 
+
+    /*
+       Якщо старий call ще залишився —
+       закриваємо його.
+    */
+    if (activeCall) {
+
+        try {
+            activeCall.close();
+        } catch (e) {}
+
+        activeCall =
+            null;
+
+    }
+
+
     try {
 
-        /*
-           Створюємо контрольований
-           1280×720 / 30fps відеопотік.
-        */
-
         const stream =
-            startCanvasStream();
+            videoPlayer.captureStream
+            ? videoPlayer.captureStream()
+            : (
+                videoPlayer.mozCaptureStream
+                ?
+                videoPlayer.mozCaptureStream()
+                :
+                null
+            );
+
 
         if (!stream) {
+
+            connectionStatus.textContent =
+                'Статус: captureStream не підтримується';
+
             return;
+
+        }
+
+
+        const videoTracks =
+            stream.getVideoTracks();
+
+
+        /*
+           Якщо браузер дозволяє,
+           обмежуємо сам track до 720p/30.
+        */
+        if (
+            videoTracks.length > 0 &&
+            videoTracks[0].applyConstraints
+        ) {
+
+            videoTracks[0]
+                .applyConstraints({
+
+                    width: {
+                        ideal:
+                            STREAM_WIDTH,
+
+                        max:
+                            STREAM_WIDTH
+                    },
+
+                    height: {
+                        ideal:
+                            STREAM_HEIGHT,
+
+                        max:
+                            STREAM_HEIGHT
+                    },
+
+                    frameRate: {
+                        ideal:
+                            STREAM_FPS,
+
+                        max:
+                            STREAM_FPS
+                    }
+
+                })
+                .catch(() => {});
+
         }
 
 
@@ -2041,43 +2307,73 @@ function startStreaming() {
             );
 
 
-        if (activeCall) {
+        const thisCall =
+            activeCall;
 
-            activeCall.on(
-                'close',
-                () => {
 
-                    if (
-                        activeCall &&
-                        activeCall.peer === conn.peer
-                    ) {
+        /*
+           Оптимізація WebRTC після
+           встановлення PeerConnection.
+        */
+        setTimeout(
+            () => {
 
-                        activeCall =
-                            null;
+                if (
+                    activeCall ===
+                    thisCall
+                ) {
 
-                    }
-
-                }
-            );
-
-            activeCall.on(
-                'error',
-                () => {
-
-                    try {
-                        activeCall.close();
-                    } catch (e) {}
-
-                    activeCall = null;
+                    optimizeOutgoingStream(
+                        thisCall
+                    );
 
                 }
-            );
 
-        }
+            },
+            500
+        );
+
+
+        thisCall.on(
+            'close',
+            () => {
+
+                if (
+                    activeCall ===
+                    thisCall
+                ) {
+
+                    activeCall =
+                        null;
+
+                }
+
+            }
+        );
+
+
+        thisCall.on(
+            'error',
+            () => {
+
+                if (
+                    activeCall ===
+                    thisCall
+                ) {
+
+                    activeCall =
+                        null;
+
+                }
+
+            }
+        );
+
 
     } catch (e) {
 
-        activeCall = null;
+        activeCall =
+            null;
 
     }
 
@@ -2121,7 +2417,10 @@ function sendStreamState() {
             : 0,
 
         paused:
-            videoPlayer.paused
+            videoPlayer.paused,
+
+        generation:
+            streamGeneration
 
     });
 
@@ -2385,9 +2684,9 @@ function setupConnection() {
                     data;
 
 
-                /* =========================================
+                /* =================================================
                    SCREEN INFO
-                ========================================= */
+                ================================================= */
 
                 if (
                     msg.type === 'screen_info'
@@ -2406,34 +2705,82 @@ function setupConnection() {
                 }
 
 
-                /* =========================================
-                   VIDEO CHANGE START
-                ========================================= */
+                /* =================================================
+                   HOST: START VIDEO CHANGE
+                ================================================= */
 
                 else if (
-                    msg.type === 'video_change_start' &&
+                    msg.type ===
+                    'video_change_start' &&
                     !isHost
                 ) {
 
+                    const generation =
+                        Number(
+                            msg.generation
+                        ) || 0;
+
+
+                    remoteCallGeneration =
+                        generation;
+
+
+                    waitingForNewStream =
+                        true;
+
+
+                    /*
+                       Старий call треба закрити.
+                    */
+                    if (activeCall) {
+
+                        try {
+                            activeCall.close();
+                        } catch (e) {}
+
+                        activeCall =
+                            null;
+
+                    }
+
+
+                    /*
+                       Старий remote stream
+                       повністю прибираємо.
+                    */
                     clearRemoteVideo();
 
+
                     connectionStatus.textContent =
-                        'Статус: Головний телефон змінює відео...';
+                        'Статус: Очікування нового відео...';
 
                 }
 
 
-                /* =========================================
-                   VIDEO CHANGE READY
-                ========================================= */
+                /* =================================================
+                   HOST: NEW VIDEO READY
+                ================================================= */
 
                 else if (
-                    msg.type === 'video_change_ready' &&
+                    msg.type ===
+                    'video_change_ready' &&
                     !isHost
                 ) {
 
+                    const generation =
+                        Number(
+                            msg.generation
+                        ) || 0;
+
+
+                    remoteCallGeneration =
+                        generation;
+
+
                     remoteVideoDuration =
-                        Number(msg.duration) || 0;
+                        Number(
+                            msg.duration
+                        ) || 0;
 
                     remoteVideoTime =
                         0;
@@ -2441,29 +2788,45 @@ function setupConnection() {
                     remoteVideoPaused =
                         false;
 
-                    timelineRange.value =
-                        0;
 
-                    timeDisplay.textContent =
-                        `00:00 / ${formatTime(remoteVideoDuration)}`;
+                    if (
+                        remoteVideoDuration > 0
+                    ) {
+
+                        timelineRange.value =
+                            0;
+
+                        timeDisplay.textContent =
+                            `00:00 / ${formatTime(remoteVideoDuration)}`;
+
+                    }
+
 
                     connectionStatus.textContent =
-                        'Статус: Нове відео завантажено.';
-
-                    startAntiSleepAudio();
-                    requestWakeLock();
+                        'Статус: Нове відео готове...';
 
                 }
 
 
-                /* =========================================
+                /* =================================================
                    STREAM STATE
-                ========================================= */
+                ================================================= */
 
                 else if (
                     msg.type === 'stream_state' &&
                     !isHost
                 ) {
+
+                    /*
+                       Якщо ми ще очікуємо новий call,
+                       не чіпаємо старий стан.
+                    */
+                    if (
+                        waitingForNewStream
+                    ) {
+                        return;
+                    }
+
 
                     remoteVideoTime =
                         Number(msg.time) || 0;
@@ -2532,9 +2895,9 @@ function setupConnection() {
                 }
 
 
-                /* =========================================
+                /* =================================================
                    LOCAL SYNC
-                ========================================= */
+                ================================================= */
 
                 else if (
                     msg.type === 'sync_state' &&
@@ -2639,9 +3002,9 @@ function setupConnection() {
                 }
 
 
-                /* =========================================
+                /* =================================================
                    SEEK
-                ========================================= */
+                ================================================= */
 
                 else if (
                     msg.type === 'seek'
@@ -2694,9 +3057,9 @@ function setupConnection() {
                 }
 
 
-                /* =========================================
+                /* =================================================
                    SEEK REQUEST
-                ========================================= */
+                ================================================= */
 
                 else if (
                     msg.type === 'seek_request' &&
@@ -2739,9 +3102,9 @@ function setupConnection() {
                 }
 
 
-                /* =========================================
+                /* =================================================
                    PLAY REQUEST
-                ========================================= */
+                ================================================= */
 
                 else if (
                     msg.type === 'play_request' &&
@@ -2753,9 +3116,9 @@ function setupConnection() {
                 }
 
 
-                /* =========================================
+                /* =================================================
                    PAUSE REQUEST
-                ========================================= */
+                ================================================= */
 
                 else if (
                     msg.type === 'pause_request' &&
@@ -2767,9 +3130,9 @@ function setupConnection() {
                 }
 
 
-                /* =========================================
+                /* =================================================
                    RESTART REQUEST
-                ========================================= */
+                ================================================= */
 
                 else if (
                     msg.type === 'restart_request' &&
@@ -2789,8 +3152,6 @@ function setupConnection() {
     conn.on(
         'close',
         () => {
-
-            stopCanvasStream();
 
             if (syncInterval) {
 
@@ -2966,18 +3327,16 @@ playPauseBtn.addEventListener(
                 conn.open
             ) {
 
-                conn.send(
-                    JSON.stringify({
+                sendMessage({
 
-                        type:
-                            videoPlayer.paused
-                            ?
-                            'play_request'
-                            :
-                            'pause_request'
+                    type:
+                        videoPlayer.paused
+                        ?
+                        'play_request'
+                        :
+                        'pause_request'
 
-                    })
-                );
+                });
 
             }
 
@@ -3008,12 +3367,12 @@ restartBtn.addEventListener(
                 conn.open
             ) {
 
-                conn.send(
-                    JSON.stringify({
-                        type:
-                            'restart_request'
-                    })
-                );
+                sendMessage({
+
+                    type:
+                        'restart_request'
+
+                });
 
             }
 
@@ -3179,7 +3538,6 @@ videoPlayer.addEventListener(
             }
 
         }
-
 
         if (
             !isHost &&
@@ -3364,17 +3722,15 @@ function finishTimelineDrag() {
             conn.open
         ) {
 
-            conn.send(
-                JSON.stringify({
+            sendMessage({
 
-                    type:
-                        'seek_request',
+                type:
+                    'seek_request',
 
-                    time:
-                        newTime
+                time:
+                    newTime
 
-                })
-            );
+            });
 
         }
 
