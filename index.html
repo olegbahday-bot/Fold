@@ -188,6 +188,18 @@ video.vid-el {
     z-index: -1;
 }
 
+/* Прихований canvas для 720p / 30fps P2P */
+#streamCanvas {
+    position: fixed;
+    width: 1px;
+    height: 1px;
+    right: -20px;
+    bottom: -20px;
+    opacity: 0.001;
+    pointer-events: none;
+    z-index: -2;
+}
+
 .controls {
     position: absolute;
     bottom: 8px;
@@ -495,6 +507,8 @@ margin-bottom:2px;
     preload="auto"
 ></video>
 
+<canvas id="streamCanvas" width="1280" height="720"></canvas>
+
 <div id="volumeIndicator">
 🔊 Гучність: 100%
 </div>
@@ -619,6 +633,15 @@ document.getElementById('videoPlayer');
 const keepAwakeVideo =
 document.getElementById('keepAwakeVideo');
 
+const streamCanvas =
+document.getElementById('streamCanvas');
+
+const streamCanvasCtx =
+streamCanvas.getContext('2d', {
+    alpha: false,
+    desynchronized: true
+});
+
 const playerControls =
 document.getElementById('playerControls');
 
@@ -694,6 +717,11 @@ document.getElementById('volumeIndicator');
 const changeVideoBtn =
 document.getElementById('changeVideoBtn');
 
+
+/* =========================================================
+   ОСНОВНІ ЗМІННІ
+========================================================= */
+
 let peer = null;
 let conn = null;
 let activeCall = null;
@@ -731,6 +759,24 @@ let volumeTimeout = null;
 let remoteVideoDuration = 0;
 let remoteVideoTime = 0;
 let remoteVideoPaused = true;
+
+
+/* =========================================================
+   720p / 30 FPS STREAM
+========================================================= */
+
+const STREAM_WIDTH = 1280;
+const STREAM_HEIGHT = 720;
+const STREAM_FPS = 30;
+
+let streamCanvasStream = null;
+let streamDrawTimer = null;
+let streamDrawing = false;
+
+
+/* =========================================================
+   PEER OPTIONS
+========================================================= */
 
 const peerOptions = {
     debug: 1,
@@ -1251,6 +1297,16 @@ videoInput.addEventListener(
             return;
         }
 
+        if (localVideoBlobUrl) {
+
+            try {
+                URL.revokeObjectURL(
+                    localVideoBlobUrl
+                );
+            } catch (e) {}
+
+        }
+
         localVideoBlobUrl =
             URL.createObjectURL(file);
 
@@ -1274,73 +1330,367 @@ videoInput.addEventListener(
     }
 );
 
+
+/* =========================================================
+   CHANGE VIDEO
+========================================================= */
+
 changeVideoBtn.addEventListener(
     'click',
     () => {
 
         if (isHost) {
+
+            newVideoInput.value = '';
+
             newVideoInput.click();
+
         }
 
     }
 );
 
+
+/* =========================================================
+   ПІДГОТОВКА НОВОГО ВІДЕО
+========================================================= */
+
+function clearRemoteVideo() {
+
+    try {
+        videoPlayer.pause();
+    } catch (e) {}
+
+    try {
+        videoPlayer.srcObject = null;
+    } catch (e) {}
+
+    try {
+        videoPlayer.removeAttribute('src');
+    } catch (e) {}
+
+    try {
+        videoPlayer.load();
+    } catch (e) {}
+
+    remoteVideoDuration = 0;
+    remoteVideoTime = 0;
+    remoteVideoPaused = true;
+
+    timelineRange.value = 0;
+
+    timeDisplay.textContent =
+        '00:00 / 00:00';
+
+    playPauseBtn.textContent =
+        '▶ Грати';
+
+}
+
+
+/* =========================================================
+   720p / 30 FPS CANVAS STREAM
+========================================================= */
+
+function stopCanvasStream() {
+
+    if (streamDrawTimer) {
+
+        clearInterval(
+            streamDrawTimer
+        );
+
+        streamDrawTimer = null;
+
+    }
+
+    streamDrawing = false;
+
+}
+
+
+function startCanvasStream() {
+
+    stopCanvasStream();
+
+    if (!isHost) {
+        return null;
+    }
+
+    try {
+
+        streamCanvas.width =
+            STREAM_WIDTH;
+
+        streamCanvas.height =
+            STREAM_HEIGHT;
+
+        /*
+           Малюємо рівно 30 разів на секунду.
+           Це не залежить від того, чи вихідне
+           відео має 30, 60 або більше кадрів.
+        */
+
+        streamDrawTimer =
+            setInterval(
+                () => {
+
+                    if (
+                        videoPlayer.readyState >= 2 &&
+                        !videoPlayer.paused &&
+                        videoPlayer.videoWidth > 0 &&
+                        videoPlayer.videoHeight > 0
+                    ) {
+
+                        try {
+
+                            streamCanvasCtx.drawImage(
+                                videoPlayer,
+                                0,
+                                0,
+                                STREAM_WIDTH,
+                                STREAM_HEIGHT
+                            );
+
+                        } catch (e) {}
+
+                    }
+
+                },
+                1000 / STREAM_FPS
+            );
+
+        if (!streamCanvasStream) {
+
+            streamCanvasStream =
+                streamCanvas.captureStream(
+                    STREAM_FPS
+                );
+
+        }
+
+        return streamCanvasStream;
+
+    } catch (e) {
+
+        return null;
+
+    }
+
+}
+
+
+/* =========================================================
+   CHANGE VIDEO HANDLER
+========================================================= */
+
 newVideoInput.addEventListener(
     'change',
-    (e) => {
+    async (e) => {
 
         const file =
             e.target.files[0];
 
         if (
-            file &&
-            isHost
+            !file ||
+            !isHost
         ) {
+            return;
+        }
 
-            if (localVideoBlobUrl) {
+
+        /*
+           Повідомляємо S10, що старий потік
+           зараз буде закритий.
+        */
+
+        sendMessage({
+            type:
+                'video_change_start'
+        });
+
+
+        /*
+           Закриваємо старий WebRTC call.
+        */
+
+        if (activeCall) {
+
+            try {
+                activeCall.close();
+            } catch (e) {}
+
+            activeCall = null;
+
+        }
+
+
+        /*
+           Зупиняємо старий canvas timer.
+        */
+
+        stopCanvasStream();
+
+
+        try {
+            videoPlayer.pause();
+        } catch (e) {}
+
+
+        /*
+           Звільняємо старий Blob URL.
+        */
+
+        if (localVideoBlobUrl) {
+
+            try {
                 URL.revokeObjectURL(
                     localVideoBlobUrl
                 );
+            } catch (e) {}
+
+        }
+
+
+        localVideoBlobUrl =
+            URL.createObjectURL(file);
+
+
+        /*
+           Повністю очищуємо старе відео.
+        */
+
+        videoPlayer.srcObject =
+            null;
+
+        videoPlayer.removeAttribute(
+            'src'
+        );
+
+        videoPlayer.load();
+
+
+        /*
+           Встановлюємо нове відео.
+        */
+
+        videoPlayer.src =
+            localVideoBlobUrl;
+
+        videoPlayer.load();
+
+        timelineRange.value =
+            0;
+
+        timeDisplay.textContent =
+            '00:00 / 00:00';
+
+
+        /*
+           Чекаємо metadata нового файла.
+        */
+
+        await new Promise(
+            (resolve) => {
+
+                if (
+                    videoPlayer.readyState >= 1
+                ) {
+
+                    resolve();
+                    return;
+
+                }
+
+                const handler =
+                    () => {
+
+                        videoPlayer.removeEventListener(
+                            'loadedmetadata',
+                            handler
+                        );
+
+                        resolve();
+
+                    };
+
+                videoPlayer.addEventListener(
+                    'loadedmetadata',
+                    handler
+                );
+
             }
+        );
 
-            localVideoBlobUrl =
-                URL.createObjectURL(file);
 
-            videoPlayer.srcObject =
-                null;
-
-            videoPlayer.src =
-                localVideoBlobUrl;
-
-            videoPlayer.load();
+        try {
 
             videoPlayer.currentTime =
                 0;
 
-            videoPlayer.pause();
+        } catch (e) {}
 
-            updateVideoStyle();
 
-            setTimeout(
-                () => {
+        videoPlayer.playbackRate =
+            1;
 
-                    sendStreamState();
 
-                    sendSyncState();
+        updateVideoStyle();
 
-                    if (
-                        videoModeSelect.value === 'stream'
-                    ) {
 
-                        startStreaming();
+        /*
+           Повідомляємо S10 тривалість нового відео.
+        */
 
-                    }
+        sendMessage({
 
-                },
-                500
-            );
+            type:
+                'video_change_ready',
 
-        }
+            duration:
+                Number.isFinite(
+                    videoPlayer.duration
+                )
+                ?
+                videoPlayer.duration
+                :
+                0
+
+        });
+
+
+        /*
+           Даємо WebRTC час повністю закрити
+           попередній call.
+        */
+
+        setTimeout(
+            () => {
+
+                startStreaming();
+
+                setTimeout(
+                    () => {
+
+                        videoPlayer.play()
+                            .catch(() => {});
+
+                        playPauseBtn.textContent =
+                            '❚❚ Пауза';
+
+                        sendStreamState();
+                        sendSyncState();
+
+                        startAntiSleepAudio();
+                        requestWakeLock();
+
+                    },
+                    300
+                );
+
+            },
+            600
+        );
 
     }
 );
@@ -1374,6 +1724,7 @@ startHostBtn.addEventListener(
 
     }
 );
+
 
 function startHostPeer() {
 
@@ -1515,6 +1866,20 @@ connectClientBtn.addEventListener(
             'call',
             (call) => {
 
+                /*
+                   Якщо приходить новий call,
+                   старий remote stream більше
+                   не повинен залишатися на екрані.
+                */
+
+                if (activeCall && activeCall !== call) {
+
+                    try {
+                        activeCall.close();
+                    } catch (e) {}
+
+                }
+
                 call.answer();
 
                 activeCall =
@@ -1523,6 +1888,8 @@ connectClientBtn.addEventListener(
                 call.on(
                     'stream',
                     (remoteStream) => {
+
+                        videoPlayer.pause();
 
                         videoPlayer.src =
                             '';
@@ -1546,6 +1913,22 @@ connectClientBtn.addEventListener(
                     }
                 );
 
+                call.on(
+                    'close',
+                    () => {
+
+                        if (
+                            activeCall === call
+                        ) {
+
+                            activeCall =
+                                null;
+
+                        }
+
+                    }
+                );
+
             }
         );
 
@@ -1554,44 +1937,69 @@ connectClientBtn.addEventListener(
 
 
 /* =========================================================
-   SCREEN INFO
+   SEND MESSAGE
 ========================================================= */
 
-function sendScreenInfo() {
+function sendMessage(message) {
 
     if (
         conn &&
         conn.open
     ) {
 
-        conn.send(
-            JSON.stringify({
+        try {
 
-                type:
-                    'screen_info',
+            conn.send(
+                JSON.stringify(
+                    message
+                )
+            );
 
-                width:
-                    window.innerWidth,
+            return true;
 
-                height:
-                    window.innerHeight,
+        } catch (e) {
 
-                position:
-                    positionSelect.value,
+            return false;
 
-                videoMode:
-                    videoModeSelect.value
-
-            })
-        );
+        }
 
     }
+
+    return false;
 
 }
 
 
 /* =========================================================
-   STREAMING
+   SCREEN INFO
+========================================================= */
+
+function sendScreenInfo() {
+
+    sendMessage({
+
+        type:
+            'screen_info',
+
+        width:
+            window.innerWidth,
+
+        height:
+            window.innerHeight,
+
+        position:
+            positionSelect.value,
+
+        videoMode:
+            videoModeSelect.value
+
+    });
+
+}
+
+
+/* =========================================================
+   STREAMING — 720p / 30 FPS
 ========================================================= */
 
 function startStreaming() {
@@ -1613,22 +2021,65 @@ function startStreaming() {
 
     try {
 
+        /*
+           Створюємо контрольований
+           1280×720 / 30fps відеопотік.
+        */
+
         const stream =
-            videoPlayer.captureStream
-            ? videoPlayer.captureStream()
-            : videoPlayer.mozCaptureStream();
+            startCanvasStream();
 
-        if (stream) {
+        if (!stream) {
+            return;
+        }
 
-            activeCall =
-                peer.call(
-                    conn.peer,
-                    stream
-                );
+
+        activeCall =
+            peer.call(
+                conn.peer,
+                stream
+            );
+
+
+        if (activeCall) {
+
+            activeCall.on(
+                'close',
+                () => {
+
+                    if (
+                        activeCall &&
+                        activeCall.peer === conn.peer
+                    ) {
+
+                        activeCall =
+                            null;
+
+                    }
+
+                }
+            );
+
+            activeCall.on(
+                'error',
+                () => {
+
+                    try {
+                        activeCall.close();
+                    } catch (e) {}
+
+                    activeCall = null;
+
+                }
+            );
 
         }
 
-    } catch (e) {}
+    } catch (e) {
+
+        activeCall = null;
+
+    }
 
 }
 
@@ -1654,33 +2105,28 @@ function sendStreamState() {
     const time =
         Number(videoPlayer.currentTime);
 
-    try {
+    sendMessage({
 
-        conn.send(
-            JSON.stringify({
+        type:
+            'stream_state',
 
-                type:
-                    'stream_state',
+        time:
+            Number.isFinite(time)
+            ? time
+            : 0,
 
-                time:
-                    Number.isFinite(time)
-                    ? time
-                    : 0,
+        duration:
+            Number.isFinite(duration)
+            ? duration
+            : 0,
 
-                duration:
-                    Number.isFinite(duration)
-                    ? duration
-                    : 0,
+        paused:
+            videoPlayer.paused
 
-                paused:
-                    videoPlayer.paused
-
-            })
-        );
-
-    } catch (e) {}
+    });
 
 }
+
 
 function sendSyncState() {
 
@@ -1693,26 +2139,21 @@ function sendSyncState() {
         return;
     }
 
-    try {
+    sendMessage({
 
-        conn.send(
-            JSON.stringify({
+        type:
+            'sync_state',
 
-                type:
-                    'sync_state',
+        time:
+            videoPlayer.currentTime,
 
-                time:
-                    videoPlayer.currentTime,
+        paused:
+            videoPlayer.paused
 
-                paused:
-                    videoPlayer.paused
-
-            })
-        );
-
-    } catch (e) {}
+    });
 
 }
+
 
 function broadcastSeek(time) {
 
@@ -1724,24 +2165,18 @@ function broadcastSeek(time) {
         return;
     }
 
-    try {
+    sendMessage({
 
-        conn.send(
-            JSON.stringify({
+        type:
+            'seek',
 
-                type:
-                    'seek',
+        time:
+            time,
 
-                time:
-                    time,
+        paused:
+            videoPlayer.paused
 
-                paused:
-                    videoPlayer.paused
-
-            })
-        );
-
-    } catch (e) {}
+    });
 
 }
 
@@ -1768,6 +2203,7 @@ function hostPlay() {
 
 }
 
+
 function hostPause() {
 
     videoPlayer.pause();
@@ -1779,6 +2215,7 @@ function hostPause() {
     sendStreamState();
 
 }
+
 
 function hostRestart() {
 
@@ -1829,11 +2266,6 @@ function setupConnection() {
                     playerScreen.style.display =
                         'block';
 
-                    /*
-                       ТАЙМЛАЙН ЗАВЖДИ ВИДИМИЙ.
-                       НІЯКИХ display:none.
-                    */
-
                     timelineContainer.style.display =
                         'flex';
 
@@ -1856,10 +2288,6 @@ function setupConnection() {
                         playPauseBtn.textContent =
                             '❚❚ Пауза';
 
-                        /*
-                           Чекаємо трохи, щоб captureStream
-                           був готовий.
-                        */
 
                         setTimeout(
                             () => {
@@ -1957,6 +2385,10 @@ function setupConnection() {
                     data;
 
 
+                /* =========================================
+                   SCREEN INFO
+                ========================================= */
+
                 if (
                     msg.type === 'screen_info'
                 ) {
@@ -1970,6 +2402,56 @@ function setupConnection() {
                     updateVideoStyle();
 
                     sendScreenInfo();
+
+                }
+
+
+                /* =========================================
+                   VIDEO CHANGE START
+                ========================================= */
+
+                else if (
+                    msg.type === 'video_change_start' &&
+                    !isHost
+                ) {
+
+                    clearRemoteVideo();
+
+                    connectionStatus.textContent =
+                        'Статус: Головний телефон змінює відео...';
+
+                }
+
+
+                /* =========================================
+                   VIDEO CHANGE READY
+                ========================================= */
+
+                else if (
+                    msg.type === 'video_change_ready' &&
+                    !isHost
+                ) {
+
+                    remoteVideoDuration =
+                        Number(msg.duration) || 0;
+
+                    remoteVideoTime =
+                        0;
+
+                    remoteVideoPaused =
+                        false;
+
+                    timelineRange.value =
+                        0;
+
+                    timeDisplay.textContent =
+                        `00:00 / ${formatTime(remoteVideoDuration)}`;
+
+                    connectionStatus.textContent =
+                        'Статус: Нове відео завантажено.';
+
+                    startAntiSleepAudio();
+                    requestWakeLock();
 
                 }
 
@@ -2307,6 +2789,8 @@ function setupConnection() {
     conn.on(
         'close',
         () => {
+
+            stopCanvasStream();
 
             if (syncInterval) {
 
@@ -2662,10 +3146,6 @@ videoPlayer.addEventListener(
     'timeupdate',
     () => {
 
-        /*
-           S25+ HOST
-        */
-
         if (
             isHost &&
             Number.isFinite(
@@ -2700,10 +3180,6 @@ videoPlayer.addEventListener(
 
         }
 
-
-        /*
-           S10 LOCAL
-        */
 
         if (
             !isHost &&
@@ -3259,4 +3735,4 @@ updateVideoStyle();
 </script>
 
 </body>
-</html>
+    </html>
