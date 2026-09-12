@@ -737,26 +737,24 @@ let remoteVideoDuration = 0;
 let remoteVideoTime = 0;
 let remoteVideoPaused = true;
 
-
-/*
-   Прапорець зміни відео.
-   Потрібен, щоб старий WebRTC-потік
-   гарантовано не залишався активним.
-*/
 let videoChangeInProgress = false;
 
-
-/*
-   Номер версії відео.
-
-   Наприклад:
-   1 = перше відео
-   2 = друге відео
-   3 = третє відео
-
-   Це додатковий захист від старого call.
-*/
 let videoVersion = 0;
+
+
+/* =========================================================
+   FULL HD LIMIT
+========================================================= */
+
+const MAX_VIDEO_WIDTH = 1920;
+const MAX_VIDEO_HEIGHT = 1080;
+
+const VIDEO_ASPECT = 16 / 9;
+
+let streamingCanvas = null;
+let streamingCanvasContext = null;
+let streamingAnimationFrame = null;
+let streamingCanvasStream = null;
 
 
 /* =========================================================
@@ -840,8 +838,7 @@ async function requestWakeLock() {
 
                             if (
                                 document.visibilityState === 'visible' &&
-                                playerScreen.style.display !== 'none' &&
-                                !videoPlayer.paused
+                                playerScreen.style.display !== 'none'
                             ) {
 
                                 requestWakeLock();
@@ -871,8 +868,7 @@ async function requestWakeLock() {
 
                     if (
                         document.visibilityState === 'visible' &&
-                        playerScreen.style.display !== 'none' &&
-                        !videoPlayer.paused
+                        playerScreen.style.display !== 'none'
                     ) {
 
                         requestWakeLock();
@@ -1054,8 +1050,7 @@ setInterval(
 
         if (
             playerScreen.style.display !== 'none' &&
-            document.visibilityState === 'visible' &&
-            !videoPlayer.paused
+            document.visibilityState === 'visible'
         ) {
 
             requestWakeLock();
@@ -1306,7 +1301,7 @@ closeCalibBtn.addEventListener(
 );
 
 
-function updateCalibrationStyle() {
+function getFixedVideoGeometry() {
 
     const myWidth =
         window.innerWidth;
@@ -1319,24 +1314,51 @@ function updateCalibrationStyle() {
     const combinedWidth =
         myWidth + pWidth;
 
-    const finalWidth =
-        combinedWidth *
-        videoScaleMultiplier;
+    /*
+       Відео не може бути ширшим за Full HD.
 
-    const videoAspect =
-        (
-            videoPlayer.videoWidth &&
-            videoPlayer.videoHeight
-        )
-        ?
-        videoPlayer.videoWidth /
-        videoPlayer.videoHeight
-        :
-        16 / 9;
+       Якщо два екрани разом ширші за 1920 px,
+       відео залишається 1920 px.
+    */
+
+    const baseWidth =
+        Math.min(
+            combinedWidth,
+            MAX_VIDEO_WIDTH
+        );
+
+    const finalWidth =
+        baseWidth *
+        videoScaleMultiplier;
 
     const finalHeight =
         finalWidth /
-        videoAspect;
+        VIDEO_ASPECT;
+
+    return {
+        myWidth,
+        pWidth,
+        combinedWidth,
+        finalWidth,
+        finalHeight
+    };
+
+}
+
+
+function updateCalibrationStyle() {
+
+    const geometry =
+        getFixedVideoGeometry();
+
+    const pWidth =
+        geometry.pWidth;
+
+    const finalWidth =
+        geometry.finalWidth;
+
+    const finalHeight =
+        geometry.finalHeight;
 
 
     let leftPos =
@@ -1489,6 +1511,155 @@ function clearRemoteVideo() {
 
 
 /* =========================================================
+   STOP STREAMING CANVAS
+========================================================= */
+
+function stopStreamingCanvas() {
+
+    if (streamingAnimationFrame) {
+
+        cancelAnimationFrame(
+            streamingAnimationFrame
+        );
+
+        streamingAnimationFrame =
+            null;
+
+    }
+
+
+    if (streamingCanvasStream) {
+
+        try {
+
+            streamingCanvasStream
+                .getTracks()
+                .forEach(
+                    track => track.stop()
+                );
+
+        } catch (e) {}
+
+    }
+
+
+    streamingCanvasStream =
+        null;
+
+    streamingCanvas =
+        null;
+
+    streamingCanvasContext =
+        null;
+
+}
+
+
+/* =========================================================
+   CREATE FULL HD STREAM
+========================================================= */
+
+function createFullHDStream() {
+
+    stopStreamingCanvas();
+
+
+    /*
+       Створюємо максимум 1920x1080.
+
+       Навіть якщо вихідне відео 4K,
+       у WebRTC передається не більше Full HD.
+    */
+
+    streamingCanvas =
+        document.createElement(
+            'canvas'
+        );
+
+    streamingCanvas.width =
+        MAX_VIDEO_WIDTH;
+
+    streamingCanvas.height =
+        MAX_VIDEO_HEIGHT;
+
+
+    streamingCanvasContext =
+        streamingCanvas.getContext(
+            '2d',
+            {
+                alpha: false,
+                desynchronized: true
+            }
+        );
+
+
+    if (!streamingCanvasContext) {
+        return null;
+    }
+
+
+    function drawFrame() {
+
+        if (
+            !streamingCanvas ||
+            !streamingCanvasContext
+        ) {
+            return;
+        }
+
+
+        /*
+           Заповнюємо кадр точно 1920x1080.
+           Це навмисно робимо 16:9,
+           щоб геометрія на двох телефонах
+           не змінювалася при виборі іншого файлу.
+        */
+
+        try {
+
+            streamingCanvasContext.drawImage(
+                videoPlayer,
+                0,
+                0,
+                MAX_VIDEO_WIDTH,
+                MAX_VIDEO_HEIGHT
+            );
+
+        } catch (e) {}
+
+
+        streamingAnimationFrame =
+            requestAnimationFrame(
+                drawFrame
+            );
+
+    }
+
+
+    drawFrame();
+
+
+    try {
+
+        streamingCanvasStream =
+            streamingCanvas.captureStream(
+                30
+            );
+
+    } catch (e) {
+
+        streamingCanvasStream =
+            null;
+
+    }
+
+
+    return streamingCanvasStream;
+
+}
+
+
+/* =========================================================
    CHANGE VIDEO — HOST
 ========================================================= */
 
@@ -1517,11 +1688,6 @@ newVideoInput.addEventListener(
         if (
             videoModeSelect.value !== 'stream'
         ) {
-
-            /*
-               У LOCAL режимі другий телефон
-               має мати свій локальний файл.
-            */
 
             if (localVideoBlobUrl) {
 
@@ -1564,17 +1730,9 @@ newVideoInput.addEventListener(
         }
 
 
-        /*
-           STREAM MODE
-        */
-
         videoChangeInProgress =
             true;
 
-
-        /*
-           Збільшуємо номер версії.
-        */
 
         videoVersion++;
 
@@ -1587,12 +1745,6 @@ newVideoInput.addEventListener(
             'Статус: Зміна відео...';
 
 
-        /*
-           КРОК 1.
-           Повідомляємо S10, щоб він
-           НЕ залишав старий кадр.
-        */
-
         sendMessage({
 
             type:
@@ -1603,11 +1755,6 @@ newVideoInput.addEventListener(
 
         });
 
-
-        /*
-           КРОК 2.
-           Закриваємо старий WebRTC call.
-        */
 
         if (activeCall) {
 
@@ -1624,31 +1771,19 @@ newVideoInput.addEventListener(
         }
 
 
-        /*
-           КРОК 3.
-           Зупиняємо старий local video.
-        */
+        stopStreamingCanvas();
+
 
         try {
             videoPlayer.pause();
         } catch (err) {}
 
 
-        /*
-           КРОК 4.
-           Від'єднуємо старий source.
-        */
-
         try {
             videoPlayer.srcObject =
                 null;
         } catch (err) {}
 
-
-        /*
-           КРОК 5.
-           Видаляємо старий Blob URL.
-        */
 
         if (localVideoBlobUrl) {
 
@@ -1663,22 +1798,11 @@ newVideoInput.addEventListener(
         }
 
 
-        /*
-           КРОК 6.
-           Створюємо новий Blob URL.
-        */
-
         localVideoBlobUrl =
             URL.createObjectURL(
                 file
             );
 
-
-        /*
-           КРОК 7.
-           Повністю очищаємо старий
-           HTML5 video source.
-        */
 
         videoPlayer.removeAttribute(
             'src'
@@ -1686,11 +1810,6 @@ newVideoInput.addEventListener(
 
         videoPlayer.load();
 
-
-        /*
-           КРОК 8.
-           Встановлюємо новий файл.
-        */
 
         videoPlayer.src =
             localVideoBlobUrl;
@@ -1704,11 +1823,6 @@ newVideoInput.addEventListener(
         timeDisplay.textContent =
             '00:00 / 00:00';
 
-
-        /*
-           КРОК 9.
-           Чекаємо loadedmetadata.
-        */
 
         await new Promise(
             (resolve) => {
@@ -1753,10 +1867,6 @@ newVideoInput.addEventListener(
                 }
 
 
-                /*
-                   Запобіжник.
-                */
-
                 setTimeout(
                     done,
                     3000
@@ -1766,15 +1876,12 @@ newVideoInput.addEventListener(
         );
 
 
-        /*
-           Якщо за цей час була запущена
-           ще одна зміна відео — стару
-           операцію припиняємо.
-        */
-
         if (
             currentVersion !== videoVersion
         ) {
+
+            videoChangeInProgress =
+                false;
 
             return;
 
@@ -1796,12 +1903,6 @@ newVideoInput.addEventListener(
         updateVideoStyle();
 
 
-        /*
-           КРОК 10.
-           Повідомляємо S10, що новий файл
-           уже підготовлений на Host.
-        */
-
         sendMessage({
 
             type:
@@ -1822,12 +1923,6 @@ newVideoInput.addEventListener(
         });
 
 
-        /*
-           КРОК 11.
-           Даємо старому WebRTC call
-           достатньо часу остаточно закритися.
-        */
-
         await new Promise(
             resolve =>
                 setTimeout(
@@ -1841,24 +1936,16 @@ newVideoInput.addEventListener(
             currentVersion !== videoVersion
         ) {
 
+            videoChangeInProgress =
+                false;
+
             return;
 
         }
 
 
-        /*
-           КРОК 12.
-           Створюємо НОВИЙ WebRTC call.
-        */
-
         startStreaming();
 
-
-        /*
-           КРОК 13.
-           Даємо PeerJS почати передачу
-           нового відеопотоку.
-        */
 
         await new Promise(
             resolve =>
@@ -1873,15 +1960,13 @@ newVideoInput.addEventListener(
             currentVersion !== videoVersion
         ) {
 
+            videoChangeInProgress =
+                false;
+
             return;
 
         }
 
-
-        /*
-           КРОК 14.
-           Запускаємо нове відео.
-        */
 
         videoPlayer.play()
             .catch(() => {});
@@ -2007,11 +2092,6 @@ function startHostPeer() {
         'call',
         (call) => {
 
-            /*
-               Host не повинен приймати
-               вхідний video call.
-            */
-
             try {
                 call.close();
             } catch (e) {}
@@ -2104,18 +2184,9 @@ connectClientBtn.addEventListener(
         );
 
 
-        /*
-           ОТРИМАННЯ НОВОГО ВІДЕОПОТОКУ.
-        */
-
         peer.on(
             'call',
             (call) => {
-
-                /*
-                   Якщо існує старий call —
-                   закриваємо його.
-                */
 
                 if (
                     activeCall &&
@@ -2133,10 +2204,6 @@ connectClientBtn.addEventListener(
                     call;
 
 
-                /*
-                   Відповідаємо на новий call.
-                */
-
                 call.answer();
 
 
@@ -2145,9 +2212,12 @@ connectClientBtn.addEventListener(
                     (remoteStream) => {
 
                         /*
-                           Дуже важливо:
-                           повністю очищаємо старий
-                           src/srcObject.
+                           НЕ робимо тут повне
+                           video.load().
+
+                           Старе очищення могло давати
+                           чорний кадр/затримку при
+                           перемиканні потоку.
                         */
 
                         try {
@@ -2156,29 +2226,20 @@ connectClientBtn.addEventListener(
 
 
                         try {
+
                             videoPlayer.srcObject =
-                                null;
-                        } catch (e) {}
+                                remoteStream;
+
+                        } catch (e) {
+
+                            return;
+
+                        }
 
 
-                        try {
-                            videoPlayer.removeAttribute(
-                                'src'
-                            );
-                        } catch (e) {}
-
-
-                        try {
-                            videoPlayer.load();
-                        } catch (e) {}
-
-
-                        /*
-                           Встановлюємо НОВИЙ stream.
-                        */
-
-                        videoPlayer.srcObject =
-                            remoteStream;
+                        videoPlayer.removeAttribute(
+                            'src'
+                        );
 
 
                         videoPlayer.muted =
@@ -2187,10 +2248,6 @@ connectClientBtn.addEventListener(
                         videoPlayer.volume =
                             1;
 
-
-                        /*
-                           Запускаємо новий потік.
-                        */
 
                         videoPlayer.play()
                             .catch(() => {});
@@ -2335,11 +2392,6 @@ function startStreaming() {
     }
 
 
-    /*
-       Якщо тут залишився старий call,
-       закриваємо його.
-    */
-
     if (activeCall) {
 
         try {
@@ -2354,28 +2406,100 @@ function startStreaming() {
 
     try {
 
+        /*
+           Замість прямого 4K/60fps captureStream
+           створюємо стабільний максимум Full HD
+           1920x1080 / 30fps.
+
+           Це має зменшити WebRTC-артефакти
+           ("сніг") на S10.
+        */
+
         const stream =
-            videoPlayer.captureStream
-            ?
-            videoPlayer.captureStream()
-            :
-            (
-                videoPlayer.mozCaptureStream
-                ?
-                videoPlayer.mozCaptureStream()
-                :
-                null
-            );
+            createFullHDStream();
 
 
         if (!stream) {
+
+            /*
+               Запасний варіант:
+               якщо canvas captureStream
+               недоступний.
+            */
+
+            const fallbackStream =
+                videoPlayer.captureStream
+                ?
+                videoPlayer.captureStream()
+                :
+                (
+                    videoPlayer.mozCaptureStream
+                    ?
+                    videoPlayer.mozCaptureStream()
+                    :
+                    null
+                );
+
+
+            if (!fallbackStream) {
+                return;
+            }
+
+
+            const newCall =
+                peer.call(
+                    conn.peer,
+                    fallbackStream
+                );
+
+
+            if (!newCall) {
+                return;
+            }
+
+
+            activeCall =
+                newCall;
+
+
+            newCall.on(
+                'close',
+                () => {
+
+                    if (
+                        activeCall === newCall
+                    ) {
+
+                        activeCall =
+                            null;
+
+                    }
+
+                }
+            );
+
+
+            newCall.on(
+                'error',
+                () => {
+
+                    if (
+                        activeCall === newCall
+                    ) {
+
+                        activeCall =
+                            null;
+
+                    }
+
+                }
+            );
+
+
             return;
+
         }
 
-
-        /*
-           Створюємо новий PeerJS call.
-        */
 
         const newCall =
             peer.call(
@@ -2818,11 +2942,6 @@ function setupConnection() {
                     !isHost
                 ) {
 
-                    /*
-                       S10 одразу прибирає
-                       старий кадр.
-                    */
-
                     clearRemoteVideo();
 
 
@@ -3127,1242 +3246,4 @@ function setupConnection() {
                             try {
 
                                 videoPlayer.currentTime =
-                                    Math.max(
-                                        0,
-                                        Number(
-                                            msg.time
-                                        ) || 0
-                                    );
-
-                            } catch (e) {}
-
-                        }
-
-                    }
-
-                }
-
-
-                /* =========================================
-                   SEEK REQUEST
-                ========================================= */
-
-                else if (
-                    msg.type === 'seek_request' &&
-                    isHost
-                ) {
-
-                    const requestedTime =
-                        Number(
-                            msg.time
-                        );
-
-
-                    const duration =
-                        Number(
-                            videoPlayer.duration
-                        );
-
-
-                    if (
-                        Number.isFinite(
-                            requestedTime
-                        ) &&
-                        Number.isFinite(
-                            duration
-                        ) &&
-                        duration > 0
-                    ) {
-
-                        videoPlayer.currentTime =
-                            Math.max(
-                                0,
-                                Math.min(
-                                    duration,
-                                    requestedTime
-                                )
-                            );
-
-
-                        videoPlayer.playbackRate =
-                            1;
-
-
-                        broadcastSeek(
-                            videoPlayer.currentTime
-                        );
-
-
-                        sendStreamState();
-
-                        sendSyncState();
-
-                    }
-
-                }
-
-
-                /* =========================================
-                   PLAY REQUEST
-                ========================================= */
-
-                else if (
-                    msg.type === 'play_request' &&
-                    isHost
-                ) {
-
-                    hostPlay();
-
-                }
-
-
-                /* =========================================
-                   PAUSE REQUEST
-                ========================================= */
-
-                else if (
-                    msg.type === 'pause_request' &&
-                    isHost
-                ) {
-
-                    hostPause();
-
-                }
-
-
-                /* =========================================
-                   RESTART REQUEST
-                ========================================= */
-
-                else if (
-                    msg.type === 'restart_request' &&
-                    isHost
-                ) {
-
-                    hostRestart();
-
-                }
-
-            } catch (e) {}
-
-        }
-    );
-
-
-    conn.on(
-        'close',
-        () => {
-
-            if (syncInterval) {
-
-                clearInterval(
-                    syncInterval
-                );
-
-                syncInterval =
-                    null;
-
-            }
-
-
-            alert(
-                "З'єднання закрито"
-            );
-
-
-            location.reload();
-
-        }
-    );
-
-}
-
-
-/* =========================================================
-   POSITION
-========================================================= */
-
-positionSelect.addEventListener(
-    'change',
-    () => {
-
-        sendScreenInfo();
-
-        updateVideoStyle();
-
-        saveSettings();
-
-    }
-);
-
-
-/* =========================================================
-   VIDEO METADATA
-========================================================= */
-
-videoPlayer.addEventListener(
-    'loadedmetadata',
-    () => {
-
-        updateVideoStyle();
-
-
-        if (
-            isHost &&
-            Number.isFinite(
-                videoPlayer.duration
-            ) &&
-            videoPlayer.duration > 0
-        ) {
-
-            timelineRange.value =
-                0;
-
-
-            timeDisplay.textContent =
-                `${formatTime(videoPlayer.currentTime)} / ${formatTime(videoPlayer.duration)}`;
-
-
-            sendStreamState();
-
-            sendSyncState();
-
-        }
-
-    }
-);
-
-
-/* =========================================================
-   VIDEO STYLE
-========================================================= */
-
-function updateVideoStyle() {
-
-    const myWidth =
-        window.innerWidth;
-
-
-    const pWidth =
-        partnerWidth > 0
-        ? partnerWidth
-        : myWidth;
-
-
-    const videoAspect =
-        (
-            videoPlayer.videoWidth &&
-            videoPlayer.videoHeight
-        )
-        ?
-        videoPlayer.videoWidth /
-        videoPlayer.videoHeight
-        :
-        16 / 9;
-
-
-    const combinedWidth =
-        myWidth +
-        pWidth;
-
-
-    const finalWidth =
-        combinedWidth *
-        videoScaleMultiplier;
-
-
-    const finalHeight =
-        finalWidth /
-        videoAspect;
-
-
-    let leftPos =
-        positionSelect.value === 'left'
-        ?
-        videoOffsetX
-        :
-        videoOffsetX - pWidth;
-
-
-    videoPlayer.style.width =
-        finalWidth + 'px';
-
-
-    videoPlayer.style.height =
-        finalHeight + 'px';
-
-
-    videoPlayer.style.transform =
-        `translate3d(${leftPos}px,${videoOffsetY}px,0)`;
-
-}
-
-
-window.addEventListener(
-    'resize',
-    updateVideoStyle
-);
-
-
-if (
-    window.visualViewport
-) {
-
-    window.visualViewport.addEventListener(
-        'resize',
-        updateVideoStyle
-    );
-
-}
-
-
-/* =========================================================
-   PLAY / PAUSE
-========================================================= */
-
-playPauseBtn.addEventListener(
-    'click',
-    () => {
-
-        startAntiSleepAudio();
-
-
-        if (isHost) {
-
-            if (
-                videoPlayer.paused
-            ) {
-
-                hostPlay();
-
-            } else {
-
-                hostPause();
-
-            }
-
-        } else {
-
-            if (
-                conn &&
-                conn.open
-            ) {
-
-                sendMessage({
-
-                    type:
-                        videoPlayer.paused
-                        ?
-                        'play_request'
-                        :
-                        'pause_request'
-
-                });
-
-            }
-
-        }
-
-    }
-);
-
-
-/* =========================================================
-   RESTART
-========================================================= */
-
-restartBtn.addEventListener(
-    'click',
-    () => {
-
-        startAntiSleepAudio();
-
-
-        if (isHost) {
-
-            hostRestart();
-
-        } else {
-
-            if (
-                conn &&
-                conn.open
-            ) {
-
-                sendMessage({
-
-                    type:
-                        'restart_request'
-
-                });
-
-            }
-
-        }
-
-    }
-);
-
-
-/* =========================================================
-   FULLSCREEN
-========================================================= */
-
-fullscreenBtn.addEventListener(
-    'click',
-    () => {
-
-        if (
-            !document.fullscreenElement
-        ) {
-
-            document.documentElement
-                .requestFullscreen()
-                .catch(() => {});
-
-        } else {
-
-            document.exitFullscreen();
-
-        }
-
-    }
-);
-
-
-/* =========================================================
-   CONTROLS
-========================================================= */
-
-playerScreen.addEventListener(
-    'click',
-    (e) => {
-
-        startAntiSleepAudio();
-
-
-        if (
-            hasSwiped
-        ) {
-
-            hasSwiped =
-                false;
-
-            return;
-
-        }
-
-
-        if (
-            !playerControls.contains(
-                e.target
-            )
-        ) {
-
-            playerControls.style.display =
-                playerControls.style.display === 'none'
-                ?
-                'flex'
-                :
-                'none';
-
-        }
-
-    }
-);
-
-
-/* =========================================================
-   FORMAT TIME
-========================================================= */
-
-function formatTime(seconds) {
-
-    if (
-        !Number.isFinite(seconds) ||
-        seconds < 0
-    ) {
-
-        return '00:00';
-
-    }
-
-
-    const hours =
-        Math.floor(
-            seconds / 3600
-        );
-
-
-    const mins =
-        Math.floor(
-            (seconds % 3600) / 60
-        );
-
-
-    const secs =
-        Math.floor(
-            seconds % 60
-        );
-
-
-    if (
-        hours > 0
-    ) {
-
-        return (
-            String(hours).padStart(2,'0') +
-            ':' +
-            String(mins).padStart(2,'0') +
-            ':' +
-            String(secs).padStart(2,'0')
-        );
-
-    }
-
-
-    return (
-        String(mins).padStart(2,'0') +
-        ':' +
-        String(secs).padStart(2,'0')
-    );
-
-}
-
-
-/* =========================================================
-   TIME UPDATE
-========================================================= */
-
-videoPlayer.addEventListener(
-    'timeupdate',
-    () => {
-
-        /*
-           HOST
-        */
-
-        if (
-            isHost &&
-            Number.isFinite(
-                videoPlayer.duration
-            ) &&
-            videoPlayer.duration > 0
-        ) {
-
-            if (
-                !isDraggingTimeline
-            ) {
-
-                const progress =
-                    (
-                        videoPlayer.currentTime /
-                        videoPlayer.duration
-                    ) * 100;
-
-
-                timelineRange.value =
-                    Math.max(
-                        0,
-                        Math.min(
-                            100,
-                            progress
-                        )
-                    );
-
-
-                timeDisplay.textContent =
-                    `${formatTime(videoPlayer.currentTime)} / ${formatTime(videoPlayer.duration)}`;
-
-            }
-
-        }
-
-
-        /*
-           S10 LOCAL
-        */
-
-        if (
-            !isHost &&
-            videoModeSelect.value === 'local' &&
-            !videoPlayer.srcObject &&
-            Number.isFinite(
-                videoPlayer.duration
-            ) &&
-            videoPlayer.duration > 0
-        ) {
-
-            if (
-                !isDraggingTimeline
-            ) {
-
-                const progress =
-                    (
-                        videoPlayer.currentTime /
-                        videoPlayer.duration
-                    ) * 100;
-
-
-                timelineRange.value =
-                    Math.max(
-                        0,
-                        Math.min(
-                            100,
-                            progress
-                        )
-                    );
-
-
-                timeDisplay.textContent =
-                    `${formatTime(videoPlayer.currentTime)} / ${formatTime(videoPlayer.duration)}`;
-
-            }
-
-        }
-
-    }
-);
-
-
-/* =========================================================
-   TIMELINE
-========================================================= */
-
-function startTimelineDrag() {
-
-    isDraggingTimeline =
-        true;
-
-}
-
-
-timelineRange.addEventListener(
-    'pointerdown',
-    startTimelineDrag
-);
-
-
-timelineRange.addEventListener(
-    'mousedown',
-    startTimelineDrag
-);
-
-
-timelineRange.addEventListener(
-    'touchstart',
-    startTimelineDrag,
-    {
-        passive: true
-    }
-);
-
-
-timelineRange.addEventListener(
-    'input',
-    () => {
-
-        let duration =
-            0;
-
-
-        if (
-            Number.isFinite(
-                videoPlayer.duration
-            ) &&
-            videoPlayer.duration > 0
-        ) {
-
-            duration =
-                videoPlayer.duration;
-
-        } else if (
-            remoteVideoDuration > 0
-        ) {
-
-            duration =
-                remoteVideoDuration;
-
-        }
-
-
-        if (
-            duration <= 0
-        ) {
-
-            return;
-
-        }
-
-
-        const newTime =
-            (
-                Number(
-                    timelineRange.value
-                ) /
-                100
-            ) * duration;
-
-
-        timeDisplay.textContent =
-            `${formatTime(newTime)} / ${formatTime(duration)}`;
-
-    }
-);
-
-
-function finishTimelineDrag() {
-
-    let duration =
-        0;
-
-
-    if (
-        Number.isFinite(
-            videoPlayer.duration
-        ) &&
-        videoPlayer.duration > 0
-    ) {
-
-        duration =
-            videoPlayer.duration;
-
-    } else if (
-        remoteVideoDuration > 0
-    ) {
-
-        duration =
-            remoteVideoDuration;
-
-    }
-
-
-    if (
-        duration <= 0
-    ) {
-
-        isDraggingTimeline =
-            false;
-
-        return;
-
-    }
-
-
-    const newTime =
-        (
-            Number(
-                timelineRange.value
-            ) /
-            100
-        ) * duration;
-
-
-    if (isHost) {
-
-        try {
-
-            videoPlayer.currentTime =
-                newTime;
-
-        } catch (e) {}
-
-
-        videoPlayer.playbackRate =
-            1;
-
-
-        broadcastSeek(
-            newTime
-        );
-
-
-        sendStreamState();
-
-        sendSyncState();
-
-    } else {
-
-        if (
-            conn &&
-            conn.open
-        ) {
-
-            sendMessage({
-
-                type:
-                    'seek_request',
-
-                time:
-                    newTime
-
-            });
-
-        }
-
-    }
-
-
-    isDraggingTimeline =
-        false;
-
-}
-
-
-timelineRange.addEventListener(
-    'pointerup',
-    finishTimelineDrag
-);
-
-
-timelineRange.addEventListener(
-    'mouseup',
-    finishTimelineDrag
-);
-
-
-timelineRange.addEventListener(
-    'touchend',
-    finishTimelineDrag,
-    {
-        passive: true
-    }
-);
-
-
-/* =========================================================
-   VOLUME
-========================================================= */
-
-playerScreen.addEventListener(
-    'touchstart',
-    (e) => {
-
-        startAntiSleepAudio();
-
-
-        if (
-            playerControls.contains(
-                e.target
-            )
-        ) {
-
-            return;
-
-        }
-
-
-        if (
-            e.touches.length === 1
-        ) {
-
-            isSwipingVolume =
-                true;
-
-
-            touchStartY =
-                e.touches[0].clientY;
-
-
-            touchStartX =
-                e.touches[0].clientX;
-
-
-            touchStartVolume =
-                videoPlayer.volume;
-
-
-            hasSwiped =
-                false;
-
-        }
-
-    },
-    {
-        passive: true
-    }
-);
-
-
-playerScreen.addEventListener(
-    'touchmove',
-    (e) => {
-
-        if (
-            !isSwipingVolume ||
-            e.touches.length !== 1
-        ) {
-
-            return;
-
-        }
-
-
-        const diffY =
-            touchStartY -
-            e.touches[0].clientY;
-
-
-        const diffX =
-            touchStartX -
-            e.touches[0].clientX;
-
-
-        if (
-            Math.abs(diffY) > 10 ||
-            Math.abs(diffX) > 10
-        ) {
-
-            hasSwiped =
-                true;
-
-        }
-
-
-        if (
-            hasSwiped
-        ) {
-
-            const newVolume =
-                Math.max(
-                    0,
-                    Math.min(
-                        1,
-                        touchStartVolume +
-                        (
-                            diffY /
-                            window.innerHeight
-                        ) * 1.5
-                    )
-                );
-
-
-            videoPlayer.volume =
-                newVolume;
-
-
-            showVolumeIndicator(
-                Math.round(
-                    newVolume * 100
-                )
-            );
-
-        }
-
-    },
-    {
-        passive: true
-    }
-);
-
-
-playerScreen.addEventListener(
-    'touchend',
-    () => {
-
-        isSwipingVolume =
-            false;
-
-    }
-);
-
-
-function showVolumeIndicator(
-    volPercent
-) {
-
-    volumeIndicator.textContent =
-        `🔊 Гучність: ${volPercent}%`;
-
-
-    volumeIndicator.style.display =
-        'block';
-
-
-    if (
-        volumeTimeout
-    ) {
-
-        clearTimeout(
-            volumeTimeout
-        );
-
-    }
-
-
-    volumeTimeout =
-        setTimeout(
-            () => {
-
-                volumeIndicator.style.display =
-                    'none';
-
-            },
-            1000
-        );
-
-}
-
-
-/* =========================================================
-   CALIBRATION CONTROLS
-========================================================= */
-
-function applyShift(
-    dx,
-    dy
-) {
-
-    videoOffsetX +=
-        dx;
-
-    videoOffsetY +=
-        dy;
-
-
-    updateVideoStyle();
-
-    updateCalibrationStyle();
-
-    saveSettings();
-
-}
-
-
-function applyScale(
-    ds
-) {
-
-    videoScaleMultiplier =
-        Math.max(
-            0.1,
-            Math.min(
-                5,
-                videoScaleMultiplier + ds
-            )
-        );
-
-
-    updateVideoStyle();
-
-    updateCalibrationStyle();
-
-    saveSettings();
-
-}
-
-
-document.getElementById(
-    'playerSaveBtn'
-).addEventListener(
-    'click',
-    saveSettings
-);
-
-
-document.getElementById(
-    'calibShiftUp'
-).addEventListener(
-    'click',
-    () => applyShift(
-        0,
-        -4
-    )
-);
-
-
-document.getElementById(
-    'calibShiftDown'
-).addEventListener(
-    'click',
-    () => applyShift(
-        0,
-        4
-    )
-);
-
-
-document.getElementById(
-    'calibShiftLeft'
-).addEventListener(
-    'click',
-    () => applyShift(
-        -4,
-        0
-    )
-);
-
-
-document.getElementById(
-    'calibShiftRight'
-).addEventListener(
-    'click',
-    () => applyShift(
-        4,
-        0
-    )
-);
-
-
-document.getElementById(
-    'calibScalePlus'
-).addEventListener(
-    'click',
-    () => applyScale(
-        0.02
-    )
-);
-
-
-document.getElementById(
-    'calibScaleMinus'
-).addEventListener(
-    'click',
-    () => applyScale(
-        -0.02
-    )
-);
-
-
-document.getElementById(
-    'calibReset'
-).addEventListener(
-    'click',
-    () => {
-
-        videoOffsetX =
-            0;
-
-        videoOffsetY =
-            0;
-
-        videoScaleMultiplier =
-            1;
-
-
-        updateVideoStyle();
-
-        updateCalibrationStyle();
-
-        saveSettings();
-
-    }
-);
-
-
-document.getElementById(
-    'shiftUpBtn'
-).addEventListener(
-    'click',
-    () => applyShift(
-        0,
-        -4
-    )
-);
-
-
-document.getElementById(
-    'shiftDownBtn'
-).addEventListener(
-    'click',
-    () => applyShift(
-        0,
-        4
-    )
-);
-
-
-document.getElementById(
-    'shiftLeftBtn'
-).addEventListener(
-    'click',
-    () => applyShift(
-        -4,
-        0
-    )
-);
-
-
-document.getElementById(
-    'shiftRightBtn'
-).addEventListener(
-    'click',
-    () => applyShift(
-        4,
-        0
-    )
-);
-
-
-document.getElementById(
-    'scalePlusBtn'
-).addEventListener(
-    'click',
-    () => applyScale(
-        0.02
-    )
-);
-
-
-document.getElementById(
-    'scaleMinusBtn'
-).addEventListener(
-    'click',
-    () => applyScale(
-        -0.02
-    )
-);
-
-
-document.getElementById(
-    'resetShiftBtn'
-).addEventListener(
-    'click',
-    () => {
-
-        videoOffsetX =
-            0;
-
-        videoOffsetY =
-            0;
-
-        videoScaleMultiplier =
-            1;
-
-
-        updateVideoStyle();
-
-        updateCalibrationStyle();
-
-        saveSettings();
-
-    }
-);
-
-
-/* =========================================================
-   PLAY EVENT
-========================================================= */
-
-videoPlayer.addEventListener(
-    'play',
-    () => {
-
-        startAntiSleepAudio();
-
-        requestWakeLock();
-
-    }
-);
-
-
-/* =========================================================
-   INITIAL
-========================================================= */
-
-updateVideoStyle();
-
-</script>
-
-</body>
-</html>
+                                    Math
